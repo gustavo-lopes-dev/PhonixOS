@@ -118,7 +118,9 @@ func (c *client) handleAction(data []byte) {
 	case actionResume:
 		c.resume()
 	case actionSetRate:
-		if message.RateMS == nil || *message.RateMS < 0 || int64(*message.RateMS) > math.MaxInt64/int64(time.Millisecond) {
+		if message.RateMS == nil || *message.RateMS < 0 ||
+			(*message.RateMS > 0 && *message.RateMS < int(minBroadcastInterval/time.Millisecond)) ||
+			int64(*message.RateMS) > math.MaxInt64/int64(time.Millisecond) {
 			slog.Debug("ws: rejected set_rate", "rate_ms", message.RateMS)
 			return
 		}

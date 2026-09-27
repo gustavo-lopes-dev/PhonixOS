@@ -35,12 +35,13 @@ func TestRESTRoutes(t *testing.T) {
 	system := handlers.System{Profile: &profile.SystemProfile{Profile: profile.ProfileLite, StorageLockMode: mode}, Started: time.Now()}
 	shortcuts := handlers.Shortcuts{Store: store}
 	settings := handlers.Settings{Store: store}
+	layout := handlers.Layout{Store: store}
 	app := api.NewServer(api.Routes{
 		Health: system.Health, Profile: system.GetProfile, Metrics: system.Metrics,
 		ListShortcuts: shortcuts.List, CreateShortcut: shortcuts.Create,
 		UpdateShortcut: shortcuts.Update, DeleteShortcut: shortcuts.Delete,
 		GetSettings: settings.Get, PatchSettings: settings.Patch,
-		GetLayout: settings.GetLayout, PutLayout: settings.PutLayout,
+		GetLayout: layout.Get, PutLayout: layout.Put,
 	}, nil)
 	request := func(method, path, body string, status int, code string) map[string]json.RawMessage {
 		t.Helper()
@@ -86,6 +87,8 @@ func TestRESTRoutes(t *testing.T) {
 	}
 	path := fmt.Sprintf("/api/v1/shortcuts/%d", shortcut.ID)
 	request(http.MethodPut, path, `{"is_pinned":true}`, http.StatusOK, "")
+	request(http.MethodPut, path, `{"title":null}`, http.StatusBadRequest, api.CodeValidationFailed)
+	request(http.MethodPut, path, `{"is_pinned":null}`, http.StatusBadRequest, api.CodeValidationFailed)
 	request(http.MethodPut, path, `{"icon_url":"https://example.org/icon.png"}`, http.StatusOK, "")
 	cleared := request(http.MethodPut, path, `{"icon_url":null}`, http.StatusOK, "")
 	if string(cleared["data"]) == "" {
@@ -99,9 +102,21 @@ func TestRESTRoutes(t *testing.T) {
 	request(http.MethodDelete, path, "", http.StatusOK, "")
 	request(http.MethodDelete, path, "", http.StatusNotFound, api.CodeShortcutNotFound)
 	request(http.MethodPatch, "/api/v1/settings", `{"theme_mode":"light"}`, http.StatusOK, "")
+	request(http.MethodPatch, "/api/v1/settings", `{"theme_mode":null}`, http.StatusBadRequest, api.CodeValidationFailed)
+	request(http.MethodPatch, "/api/v1/settings", `{"custom_poll_interval_ms":200}`, http.StatusBadRequest, api.CodeValidationFailed)
+	request(http.MethodPatch, "/api/v1/settings", `{"custom_poll_interval_ms":1000}`, http.StatusOK, "")
+	request(http.MethodPatch, "/api/v1/settings", `{"custom_poll_interval_ms":0}`, http.StatusOK, "")
 	request(http.MethodPatch, "/api/v1/settings", `{"battery_saver_threshold":49}`, http.StatusBadRequest, api.CodeValidationFailed)
-	request(http.MethodPut, "/api/v1/layout", `{"cards":[{"card_key":"metrics_cpu","width":2,"height":2,"is_visible":true}]}`, http.StatusOK, "")
-	request(http.MethodPut, "/api/v1/layout", `{"cards":[{"card_key":"missing","width":2,"height":2}]}`, http.StatusNotFound, api.CodeCardNotFound)
+	request(http.MethodPut, "/api/v1/layout", `{"cards":[{"card_key":"metrics_cpu","width":2,"height":2}]}`, http.StatusBadRequest, api.CodeValidationFailed)
+	request(http.MethodPut, "/api/v1/layout", `{"cards":[{"card_key":"metrics_cpu","width":2,"height":2,"is_visible":true}]}`, http.StatusBadRequest, api.CodeValidationFailed)
+	request(http.MethodPut, "/api/v1/layout", `{"cards":[{"card_key":"metrics_cpu","pos_x":0,"pos_y":0,"width":2,"height":2,"is_visible":null}]}`, http.StatusBadRequest, api.CodeValidationFailed)
+	request(http.MethodPut, "/api/v1/layout", `{"cards":[{"card_key":"metrics_cpu","pos_x":null,"width":2,"height":2,"is_visible":true}]}`, http.StatusBadRequest, api.CodeValidationFailed)
+	request(http.MethodPut, "/api/v1/layout", `{"cards":[{"card_key":"metrics_cpu","pos_x":0,"pos_y":0,"width":1,"height":2,"is_visible":true}]}`, http.StatusBadRequest, api.CodeValidationFailed)
+	request(http.MethodPut, "/api/v1/layout", `{"cards":[{"card_key":"metrics_cpu","pos_x":0,"pos_y":0,"width":2,"height":1,"is_visible":true}]}`, http.StatusBadRequest, api.CodeValidationFailed)
+	request(http.MethodPut, "/api/v1/layout", `{"cards":[{"card_key":"metrics_cpu","pos_x":5,"pos_y":0,"width":2,"height":2,"is_visible":true}]}`, http.StatusBadRequest, api.CodeValidationFailed)
+	request(http.MethodPut, "/api/v1/layout", `{"cards":[{"card_key":"metrics_cpu","pos_x":0,"pos_y":0,"width":2,"height":2,"is_visible":false}]}`, http.StatusOK, "")
+	request(http.MethodPut, "/api/v1/layout", `{"cards":[{"card_key":"metrics_cpu","pos_x":0,"pos_y":0,"width":2,"height":2,"is_visible":true}]}`, http.StatusOK, "")
+	request(http.MethodPut, "/api/v1/layout", `{"cards":[{"card_key":"missing","pos_x":0,"pos_y":0,"width":2,"height":2,"is_visible":true}]}`, http.StatusNotFound, api.CodeCardNotFound)
 	request(http.MethodGet, "/api/v1/missing", "", http.StatusNotFound, "RESOURCE_NOT_FOUND")
 
 	// A rota síncrona usa o coletor real e o mesmo envelope REST.

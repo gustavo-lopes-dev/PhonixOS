@@ -57,6 +57,7 @@ func run() error {
 	system := handlers.System{Profile: systemProfile, Started: time.Now()}
 	shortcuts := handlers.Shortcuts{Store: store}
 	settings := handlers.Settings{Store: store}
+	layout := handlers.Layout{Store: store}
 
 	hub := ws.NewHub(systemProfile)
 	broadcaster := ws.NewBroadcaster(hub)
@@ -73,7 +74,7 @@ func run() error {
 		ListShortcuts: shortcuts.List, CreateShortcut: shortcuts.Create,
 		UpdateShortcut: shortcuts.Update, DeleteShortcut: shortcuts.Delete,
 		GetSettings: settings.Get, PatchSettings: settings.Patch,
-		GetLayout: settings.GetLayout, PutLayout: settings.PutLayout,
+		GetLayout: layout.Get, PutLayout: layout.Put,
 	}, hub)
 
 	listenErr := make(chan error, 1)

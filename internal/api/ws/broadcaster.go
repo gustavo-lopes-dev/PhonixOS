@@ -8,9 +8,8 @@ import (
 	"github.com/gustavo-lopes-dev/PhonixOS/internal/collector"
 )
 
-// minBroadcastInterval é o piso de cadência do ticker global. set_rate aceita
-// qualquer inteiro positivo, mas a coleta compartilhada nunca roda mais rápido
-// que 1s para preservar o orçamento de recursos.
+// minBroadcastInterval é o piso de cadência aceito em set_rate e do ticker
+// global, preservando o orçamento de recursos.
 const minBroadcastInterval = time.Second
 
 // Broadcaster executa uma única coleta de hardware por tick e distribui o

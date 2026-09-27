@@ -158,6 +158,14 @@ func TestClientActions(t *testing.T) {
 	if got := c.currentCadence(); got != 1500*time.Millisecond {
 		t.Fatalf("negative rate_ms changed cadence to %v", got)
 	}
+	c.handleAction([]byte(`{"action":"set_rate","rate_ms":200}`))
+	if got := c.currentCadence(); got != 1500*time.Millisecond {
+		t.Fatalf("rate below ticker minimum changed cadence to %v", got)
+	}
+	c.handleAction([]byte(`{"action":"set_rate","rate_ms":1000}`))
+	if got := c.currentCadence(); got != time.Second {
+		t.Fatalf("minimum valid rate was not applied: %v", got)
+	}
 
 	c.handleAction([]byte(`{"action":"set_rate","rate_ms":0}`))
 	if got := c.currentCadence(); got != 2*time.Second {
@@ -220,7 +228,7 @@ func TestBroadcasterIntervalAdapts(t *testing.T) {
 		t.Fatalf("lite interval = %v, want 5s", got)
 	}
 
-	c.setRate(200 * time.Millisecond)
+	c.setRate(time.Second)
 	if got := b.interval(); got != minBroadcastInterval {
 		t.Fatalf("interval = %v, want floor %v", got, minBroadcastInterval)
 	}
