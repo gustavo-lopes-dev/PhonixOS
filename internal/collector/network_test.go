@@ -170,3 +170,59 @@ func TestPerSecondRateWraparound(t *testing.T) {
 		t.Fatalf("expected 250, got %d", got)
 	}
 }
+
+func TestNetworkCollectorWithoutRoute(t *testing.T) {
+	dir := t.TempDir()
+	collector := &networkCollector{
+		source: networkSource{
+			devPath:     writeFixture(t, dir, "dev", netDevFixture),
+			routePath:   filepath.Join(dir, "missing-route"),
+			fibTriePath: filepath.Join(dir, "missing-fib"),
+		},
+		now: func() time.Time { return time.Now() },
+		lookupIPv4: func(name string) string {
+			if name == "eth0" {
+				return "192.168.1.42"
+			}
+			return ""
+		},
+	}
+
+	metrics, err := collector.collect()
+	if err != nil {
+		t.Fatalf("collect without route: %v", err)
+	}
+	if len(metrics) != 1 || metrics[0].InterfaceName != "eth0" || metrics[0].IPv4Address != "192.168.1.42" {
+		t.Fatalf("expected fallback IPv4 from interface lookup, got %+v", metrics)
+	}
+}
+
+func TestNetworkCollectorSerializesSampling(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	collector := &networkCollector{
+		source: networkSource{routePath: filepath.Join(t.TempDir(), "missing-route")},
+		now:    time.Now,
+		readDev: func(string) (map[string]netDevCounters, error) {
+			close(started)
+			<-release
+			return map[string]netDevCounters{}, nil
+		},
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := collector.collect()
+		done <- err
+	}()
+	<-started
+	if collector.mu.TryLock() {
+		collector.mu.Unlock()
+		close(release)
+		<-done
+		t.Fatal("sampling must hold the mutex before reading counters")
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+}

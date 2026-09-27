@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -12,7 +13,7 @@ import (
 type termuxBatteryProvider struct {
 	// command existe para permitir injeção em testes; quando nil, executa
 	// `termux-battery-status`.
-	command func() ([]byte, error)
+	command func(context.Context) ([]byte, error)
 }
 
 // termuxBatteryStatus espelha o JSON emitido pela Termux:API.
@@ -26,14 +27,17 @@ type termuxBatteryStatus struct {
 
 // GetMetrics executa e interpreta a saída JSON de `termux-battery-status`.
 func (p termuxBatteryProvider) GetMetrics() (*BatteryMetrics, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), batteryCommandTimeout)
+	defer cancel()
+
 	run := p.command
 	if run == nil {
-		run = func() ([]byte, error) {
-			return exec.Command("termux-battery-status").Output()
+		run = func(ctx context.Context) ([]byte, error) {
+			return exec.CommandContext(ctx, "termux-battery-status").Output()
 		}
 	}
 
-	output, err := run()
+	output, err := run(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("collector: termux-battery-status: %w", err)
 	}

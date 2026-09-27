@@ -1,6 +1,13 @@
 package collector
 
-import "log/slog"
+import (
+	"log/slog"
+	"time"
+)
+
+// Limita cada fallback externo para que um serviço Android sem resposta não
+// bloqueie indefinidamente a telemetria nem impeça o fallback mock.
+const batteryCommandTimeout = time.Second
 
 // batteryProvider é o contrato interno de cada nível do pipeline de bateria.
 // Cada provedor devolve as métricas já com sua própria BatterySource ou um erro

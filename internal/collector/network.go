@@ -40,8 +40,10 @@ type networkSource struct {
 // networkCollector mantém o estado entre coletas consecutivas para o cálculo
 // das taxas por segundo. O acesso ao estado é serializado por mu.
 type networkCollector struct {
-	source networkSource
-	now    func() time.Time
+	source     networkSource
+	now        func() time.Time
+	lookupIPv4 func(string) string
+	readDev    func(string) (map[string]netDevCounters, error)
 
 	mu     sync.Mutex
 	prev   map[string]netDevCounters
@@ -68,15 +70,27 @@ func CollectNetwork() ([]NetworkMetrics, error) {
 // collect lê /proc/net/dev, resolve o IPv4 de cada interface com rota ativa e
 // calcula bytes enviados/recebidos por segundo desde a coleta anterior.
 func (c *networkCollector) collect() ([]NetworkMetrics, error) {
-	counters, err := readNetDev(c.source.devPath)
+	// Serializa a amostragem inteira: duas chamadas não podem publicar amostras
+	// em ordem diferente daquela em que leram os contadores.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	read := c.readDev
+	if read == nil {
+		read = readNetDev
+	}
+	counters, err := read(c.source.devPath)
 	if err != nil {
 		return nil, err
 	}
 
-	addresses := resolveInterfaceIPv4(c.source.routePath, c.source.fibTriePath)
+	lookup := c.lookupIPv4
+	if lookup == nil {
+		lookup = kernelInterfaceIPv4
+	}
+	addresses := resolveInterfaceIPv4(c.source.routePath, c.source.fibTriePath, counters, lookup)
 	now := c.now()
 
-	c.mu.Lock()
 	elapsed := now.Sub(c.prevAt).Seconds()
 	metrics := make([]NetworkMetrics, 0, len(counters))
 	for name, current := range counters {
@@ -103,7 +117,6 @@ func (c *networkCollector) collect() ([]NetworkMetrics, error) {
 	}
 	c.prev = counters
 	c.prevAt = now
-	c.mu.Unlock()
 
 	sort.Slice(metrics, func(i, j int) bool {
 		return metrics[i].InterfaceName < metrics[j].InterfaceName
@@ -175,12 +188,22 @@ func readNetDev(path string) (map[string]netDevCounters, error) {
 // redes diretamente conectadas de /proc/net/route. Interfaces não resolvidas
 // por /proc recorrem ao netlink via stdlib (Zero Root), cobrindo kernels que
 // não expõem fib_trie.
-func resolveInterfaceIPv4(routePath, fibTriePath string) map[string]string {
+func resolveInterfaceIPv4(routePath, fibTriePath string, counters map[string]netDevCounters, lookup func(string) string) map[string]string {
 	addresses := make(map[string]string)
 
 	networks, err := readConnectedNetworks(routePath)
 	if err != nil {
 		slog.Debug("collector: network route unavailable", "error", err)
+		// Sem a tabela de rotas, consulta diretamente as interfaces observadas
+		// em /proc/net/dev para evitar um snapshot de rede vazio.
+		for iface := range counters {
+			if iface != loopbackIface {
+				if ip := lookup(iface); ip != "" {
+					addresses[iface] = ip
+				}
+			}
+		}
+		return addresses
 	}
 
 	locals, err := readLocalIPv4(fibTriePath)
@@ -198,7 +221,7 @@ func resolveInterfaceIPv4(routePath, fibTriePath string) map[string]string {
 		if addresses[iface] != "" {
 			continue
 		}
-		if ip := kernelInterfaceIPv4(iface); ip != "" {
+		if ip := lookup(iface); ip != "" {
 			addresses[iface] = ip
 		}
 	}
@@ -324,6 +347,9 @@ func kernelInterfaceIPv4(name string) string {
 	iface, err := net.InterfaceByName(name)
 	if err != nil {
 		slog.Debug("collector: interface lookup failed", "interface", name, "error", err)
+		return ""
+	}
+	if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 		return ""
 	}
 

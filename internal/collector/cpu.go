@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,7 +28,7 @@ type cpuTimes struct {
 // cpuStatSample contém o agregado e os contadores por núcleo lógico.
 type cpuStatSample struct {
 	aggregate cpuTimes
-	cores     []cpuTimes
+	cores     map[int]cpuTimes
 }
 
 // CollectCPU lê o uso total e por núcleo, o load average e a frequência de cada
@@ -51,14 +52,7 @@ func CollectCPU() (*CPUMetrics, error) {
 		return nil, err
 	}
 
-	cores := make([]CPUCoreMetrics, len(second.cores))
-	for id := range second.cores {
-		cores[id] = CPUCoreMetrics{
-			CoreID:       id,
-			FrequencyMHz: coreFrequencyMHz(id),
-			UsagePercent: usagePercent(first.core(id), second.cores[id]),
-		}
-	}
+	cores := collectCPUCores(first, second, coreFrequencyMHz)
 
 	return &CPUMetrics{
 		UsagePercent: usagePercent(first.aggregate, second.aggregate),
@@ -70,13 +64,28 @@ func CollectCPU() (*CPUMetrics, error) {
 	}, nil
 }
 
-// core devolve os contadores anteriores de um núcleo, protegendo contra
-// hotplug que altere a quantidade de núcleos entre as amostras.
-func (s cpuStatSample) core(id int) cpuTimes {
-	if id >= 0 && id < len(s.cores) {
-		return s.cores[id]
+// collectCPUCores emite apenas núcleos presentes na amostra atual. Um núcleo
+// ativado após a primeira amostra ainda não possui delta de uso significativo.
+func collectCPUCores(first, second cpuStatSample, frequency func(int) float64) []CPUCoreMetrics {
+	ids := make([]int, 0, len(second.cores))
+	for id := range second.cores {
+		ids = append(ids, id)
 	}
-	return cpuTimes{}
+	sort.Ints(ids)
+
+	cores := make([]CPUCoreMetrics, 0, len(ids))
+	for _, id := range ids {
+		usage := 0.0
+		if prev, ok := first.cores[id]; ok {
+			usage = usagePercent(prev, second.cores[id])
+		}
+		cores = append(cores, CPUCoreMetrics{
+			CoreID:       id,
+			FrequencyMHz: frequency(id),
+			UsagePercent: usage,
+		})
+	}
+	return cores
 }
 
 // usagePercent calcula o percentual de uso a partir da variação dos
@@ -137,8 +146,8 @@ func readCPUStat(path string) (sample cpuStatSample, err error) {
 		if convErr != nil || id < 0 {
 			continue
 		}
-		for len(sample.cores) <= id {
-			sample.cores = append(sample.cores, cpuTimes{})
+		if sample.cores == nil {
+			sample.cores = make(map[int]cpuTimes)
 		}
 		sample.cores[id] = times
 	}

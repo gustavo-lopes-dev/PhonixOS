@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strconv"
@@ -12,19 +13,22 @@ import (
 type dumpsysBatteryProvider struct {
 	// command existe para permitir injeção em testes; quando nil, executa
 	// `dumpsys battery`.
-	command func() ([]byte, error)
+	command func(context.Context) ([]byte, error)
 }
 
 // GetMetrics executa e interpreta a saída de `dumpsys battery`.
 func (p dumpsysBatteryProvider) GetMetrics() (*BatteryMetrics, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), batteryCommandTimeout)
+	defer cancel()
+
 	run := p.command
 	if run == nil {
-		run = func() ([]byte, error) {
-			return exec.Command("dumpsys", "battery").Output()
+		run = func(ctx context.Context) ([]byte, error) {
+			return exec.CommandContext(ctx, "dumpsys", "battery").Output()
 		}
 	}
 
-	output, err := run()
+	output, err := run(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("collector: dumpsys battery: %w", err)
 	}
