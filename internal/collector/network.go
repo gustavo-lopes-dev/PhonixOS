@@ -194,7 +194,9 @@ func resolveInterfaceIPv4(routePath, fibTriePath string, counters map[string]net
 	networks, err := readConnectedNetworks(routePath)
 	if err != nil {
 		slog.Debug("collector: network route unavailable", "error", err)
-		// Sem a tabela de rotas, consulta diretamente as interfaces observadas
+	}
+	if err != nil || len(networks) == 0 {
+		// Sem rotas utilizáveis, consulta diretamente as interfaces observadas
 		// em /proc/net/dev para evitar um snapshot de rede vazio.
 		for iface := range counters {
 			if iface != loopbackIface {
@@ -211,13 +213,38 @@ func resolveInterfaceIPv4(routePath, fibTriePath string, counters map[string]net
 		slog.Debug("collector: network fib_trie unavailable", "error", err)
 	}
 
+	// fib_trie lista IPs locais sem identificar a interface. Uma sub-rede
+	// compartilhada por interfaces diferentes não permite associação segura.
+	candidates := make(map[string]string)
 	for iface, subnets := range networks {
-		if ip := matchLocalIPv4(locals, subnets); ip != "" {
-			addresses[iface] = ip
+		if _, observed := counters[iface]; !observed || iface == loopbackIface {
+			continue
+		}
+		for _, ip := range locals {
+			for _, subnet := range subnets {
+				if subnet.Contains(ip) {
+					key := ip.String()
+					if previous, exists := candidates[key]; !exists {
+						candidates[key] = iface
+					} else if previous != iface {
+						candidates[key] = ""
+					}
+					break
+				}
+			}
+		}
+	}
+	for _, ip := range locals {
+		iface := candidates[ip.String()]
+		if iface != "" && addresses[iface] == "" {
+			addresses[iface] = ip.String()
 		}
 	}
 
 	for iface := range networks {
+		if _, observed := counters[iface]; !observed || iface == loopbackIface {
+			continue
+		}
 		if addresses[iface] != "" {
 			continue
 		}
@@ -310,19 +337,6 @@ func readLocalIPv4(path string) ([]net.IP, error) {
 		return nil, fmt.Errorf("collector: scan %q: %w", path, scanErr)
 	}
 	return addresses, nil
-}
-
-// matchLocalIPv4 devolve o primeiro endereço local contido em alguma das redes
-// conectadas da interface.
-func matchLocalIPv4(locals []net.IP, subnets []net.IPNet) string {
-	for _, subnet := range subnets {
-		for _, ip := range locals {
-			if subnet.Contains(ip) {
-				return ip.String()
-			}
-		}
-	}
-	return ""
 }
 
 // parseHexIPv4 converte um campo hexadecimal de /proc/net/route em um inteiro

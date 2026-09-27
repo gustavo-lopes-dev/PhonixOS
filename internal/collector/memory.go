@@ -12,11 +12,12 @@ const memInfoPath = "/proc/meminfo"
 
 // memInfo agrega os campos de /proc/meminfo usados no cálculo de RAM.
 type memInfo struct {
-	total     uint64
-	available uint64
-	free      uint64
-	buffers   uint64
-	cached    uint64
+	total        uint64
+	available    uint64
+	hasAvailable bool
+	free         uint64
+	buffers      uint64
+	cached       uint64
 }
 
 // CollectMemory obtém o consumo de RAM do host a partir de /proc/meminfo,
@@ -26,12 +27,16 @@ func CollectMemory() (*MemoryMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
+	return memoryMetrics(info)
+}
+
+func memoryMetrics(info memInfo) (*MemoryMetrics, error) {
 	if info.total == 0 {
 		return nil, fmt.Errorf("collector: MemTotal not found in %q", memInfoPath)
 	}
 
 	available := info.available
-	if available == 0 {
+	if !info.hasAvailable {
 		available = info.free + info.buffers + info.cached
 	}
 	if available > info.total {
@@ -76,6 +81,7 @@ func readMemInfo(path string) (info memInfo, err error) {
 			target = &info.total
 		case "MemAvailable":
 			target = &info.available
+			info.hasAvailable = true
 		case "MemFree":
 			target = &info.free
 		case "Buffers":

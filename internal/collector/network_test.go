@@ -197,6 +197,47 @@ func TestNetworkCollectorWithoutRoute(t *testing.T) {
 	}
 }
 
+func TestNetworkCollectorWithEmptyRoute(t *testing.T) {
+	dir := t.TempDir()
+	collector := &networkCollector{
+		source: networkSource{
+			devPath:     writeFixture(t, dir, "dev", netDevFixture),
+			routePath:   writeFixture(t, dir, "route", "Iface Destination Gateway Flags RefCnt Use Metric Mask MTU Window IRTT\n"),
+			fibTriePath: filepath.Join(dir, "missing-fib"),
+		},
+		now: time.Now,
+		lookupIPv4: func(name string) string {
+			if name == "eth0" {
+				return "192.168.1.42"
+			}
+			return ""
+		},
+	}
+	metrics, err := collector.collect()
+	if err != nil || len(metrics) != 1 || metrics[0].IPv4Address != "192.168.1.42" {
+		t.Fatalf("expected interface lookup on empty routes, got %+v, %v", metrics, err)
+	}
+}
+
+func TestResolveInterfaceIPv4OverlappingNetworks(t *testing.T) {
+	dir := t.TempDir()
+	route := writeFixture(t, dir, "route", netRouteFixture+"wlan0 0001A8C0 00000000 0001 0 0 0 00FFFFFF 0 0 0\n")
+	fib := writeFixture(t, dir, "fib_trie", fibTrieFixture)
+	counters := map[string]netDevCounters{"eth0": {}, "wlan0": {}}
+	addresses := resolveInterfaceIPv4(route, fib, counters, func(name string) string {
+		if name == "eth0" {
+			return "192.168.1.42"
+		}
+		if name == "wlan0" {
+			return "192.168.1.43"
+		}
+		return ""
+	})
+	if addresses["eth0"] != "192.168.1.42" || addresses["wlan0"] != "192.168.1.43" {
+		t.Fatalf("ambiguous fib_trie address attributed to wrong interface: %+v", addresses)
+	}
+}
+
 func TestNetworkCollectorSerializesSampling(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})

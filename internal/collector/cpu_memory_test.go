@@ -58,3 +58,32 @@ func TestReadMemInfo(t *testing.T) {
 		t.Fatal("expected parse error for invalid MemTotal")
 	}
 }
+
+func TestMemoryAvailableZeroIsNotMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "meminfo")
+	for _, tc := range []struct {
+		name          string
+		content       string
+		wantAvailable uint64
+	}{
+		{"zero", "MemTotal: 1024 kB\nMemAvailable: 0 kB\nMemFree: 64 kB\nBuffers: 32 kB\nCached: 128 kB\n", 0},
+		{"missing", "MemTotal: 1024 kB\nMemFree: 64 kB\nBuffers: 32 kB\nCached: 128 kB\n", 224 * 1024},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			info, err := readMemInfo(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			metrics, err := memoryMetrics(info)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if metrics.AvailableBytes != tc.wantAvailable {
+				t.Fatalf("available = %d, want %d", metrics.AvailableBytes, tc.wantAvailable)
+			}
+		})
+	}
+}

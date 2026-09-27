@@ -2,6 +2,7 @@ package collector
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -9,6 +10,10 @@ import (
 // RAM, bateria (pipeline de 4 níveis) e rede. O Timestamp é sempre emitido em
 // UTC para conformidade com o contrato ISO 8601 / RFC 3339.
 func CollectHardware() (*HardwareMetrics, error) {
+	return collectHardwareWithNetwork(CollectNetwork)
+}
+
+func collectHardwareWithNetwork(collectNetwork func() ([]NetworkMetrics, error)) (*HardwareMetrics, error) {
 	cpu, err := CollectCPU()
 	if err != nil {
 		return nil, fmt.Errorf("collector: cpu metrics: %w", err)
@@ -19,9 +24,10 @@ func CollectHardware() (*HardwareMetrics, error) {
 		return nil, fmt.Errorf("collector: memory metrics: %w", err)
 	}
 
-	network, err := CollectNetwork()
+	network, err := collectNetwork()
 	if err != nil {
-		return nil, fmt.Errorf("collector: network metrics: %w", err)
+		slog.Debug("collector: network metrics unavailable", "error", err)
+		network = []NetworkMetrics{}
 	}
 
 	battery := CollectBattery()
