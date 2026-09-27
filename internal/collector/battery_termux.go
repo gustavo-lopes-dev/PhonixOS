@@ -19,7 +19,7 @@ type termuxBatteryProvider struct {
 // termuxBatteryStatus espelha o JSON emitido pela Termux:API.
 type termuxBatteryStatus struct {
 	Health      string  `json:"health"`
-	Percentage  int     `json:"percentage"`
+	Percentage  *int    `json:"percentage"`
 	Plugged     string  `json:"plugged"`
 	Status      string  `json:"status"`
 	Temperature float64 `json:"temperature"`
@@ -51,9 +51,12 @@ func parseTermuxBattery(output []byte) (*BatteryMetrics, error) {
 	if err := json.Unmarshal(output, &status); err != nil {
 		return nil, fmt.Errorf("collector: termux battery json: %w", err)
 	}
+	if status.Percentage == nil || *status.Percentage < 0 || *status.Percentage > 100 || strings.TrimSpace(status.Status) == "" {
+		return nil, fmt.Errorf("collector: termux battery percentage or status missing or invalid")
+	}
 
 	return &BatteryMetrics{
-		LevelPercent: clampPercent(status.Percentage),
+		LevelPercent: *status.Percentage,
 		Status:       termuxStatus(status.Status),
 		Health:       termuxHealth(status.Health),
 		TemperatureC: status.Temperature,

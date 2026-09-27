@@ -78,6 +78,65 @@ func TestInitDBAndMigrations(t *testing.T) {
 	}
 }
 
+func TestPragmasOnReplacementConnection(t *testing.T) {
+	db, mode, err := InitDB(filepath.Join(t.TempDir(), "phonix.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	// Com nenhum idle, cada consulta abre uma conexão física nova.
+	db.SetMaxIdleConns(0)
+	for i := 0; i < 2; i++ {
+		for _, check := range []struct {
+			name string
+			want int
+		}{
+			{"foreign_keys", 1},
+			{"synchronous", 1},
+			{"cache_size", -2000},
+			{"temp_store", 2},
+			{"busy_timeout", 5000},
+		} {
+			var got int
+			if err := db.QueryRow("PRAGMA " + check.name).Scan(&got); err != nil || got != check.want {
+				t.Fatalf("connection %d: %s = %d, want %d: %v", i, check.name, got, check.want, err)
+			}
+		}
+		var gotMode string
+		if err := db.QueryRow("PRAGMA journal_mode").Scan(&gotMode); err != nil || gotMode != mode {
+			t.Fatalf("connection %d: journal_mode = %q, want %q: %v", i, gotMode, mode, err)
+		}
+	}
+}
+
+func TestTruncateModeOnReplacementConnection(t *testing.T) {
+	db, err := openConfiguredDB(filepath.Join(t.TempDir(), "phonix.db"), journalModeTruncate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	db.SetMaxIdleConns(0)
+	for i := 0; i < 2; i++ {
+		mode, err := currentJournalMode(db)
+		if err != nil || mode != journalModeTruncate {
+			t.Fatalf("connection %d: journal_mode = %q, want truncate: %v", i, mode, err)
+		}
+		var foreignKeys int
+		if err := db.QueryRow("PRAGMA foreign_keys").Scan(&foreignKeys); err != nil || foreignKeys != 1 {
+			t.Fatalf("connection %d: foreign_keys = %d, want 1: %v", i, foreignKeys, err)
+		}
+	}
+}
+
 func TestMigrationRollbackAndRetry(t *testing.T) {
 	db, _, err := InitDB(filepath.Join(t.TempDir(), "phonix.db"))
 	if err != nil {

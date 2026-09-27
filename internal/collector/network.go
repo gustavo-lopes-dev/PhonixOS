@@ -67,7 +67,7 @@ func CollectNetwork() ([]NetworkMetrics, error) {
 	return defaultNetworkCollector.collect()
 }
 
-// collect lê /proc/net/dev, resolve o IPv4 de cada interface com rota ativa e
+// collect lê /proc/net/dev, resolve o IPv4 de cada interface ativa e
 // calcula bytes enviados/recebidos por segundo desde a coleta anterior.
 func (c *networkCollector) collect() ([]NetworkMetrics, error) {
 	// Serializa a amostragem inteira: duas chamadas não podem publicar amostras
@@ -183,11 +183,10 @@ func readNetDev(path string) (map[string]netDevCounters, error) {
 	return counters, nil
 }
 
-// resolveInterfaceIPv4 determina o IPv4 das interfaces com rota ativa. A
+// resolveInterfaceIPv4 determina o IPv4 das interfaces observadas. A
 // resolução primária usa /proc/net/fib_trie (endereços locais) cruzado com as
-// redes diretamente conectadas de /proc/net/route. Interfaces não resolvidas
-// por /proc recorrem ao netlink via stdlib (Zero Root), cobrindo kernels que
-// não expõem fib_trie.
+// redes diretamente conectadas de /proc/net/route. Interfaces sem rota nessa
+// tabela ou não resolvidas por /proc recorrem ao netlink via stdlib (Zero Root).
 func resolveInterfaceIPv4(routePath, fibTriePath string, counters map[string]netDevCounters, lookup func(string) string) map[string]string {
 	addresses := make(map[string]string)
 
@@ -241,8 +240,8 @@ func resolveInterfaceIPv4(routePath, fibTriePath string, counters map[string]net
 		}
 	}
 
-	for iface := range networks {
-		if _, observed := counters[iface]; !observed || iface == loopbackIface {
+	for iface := range counters {
+		if iface == loopbackIface {
 			continue
 		}
 		if addresses[iface] != "" {

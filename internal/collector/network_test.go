@@ -219,6 +219,31 @@ func TestNetworkCollectorWithEmptyRoute(t *testing.T) {
 	}
 }
 
+func TestNetworkCollectorWithPartialRoutes(t *testing.T) {
+	dir := t.TempDir()
+	collector := &networkCollector{
+		source: networkSource{
+			devPath:     writeFixture(t, dir, "dev", netDevFixture),
+			routePath:   writeFixture(t, dir, "route", netRouteFixture),
+			fibTriePath: writeFixture(t, dir, "fib_trie", fibTrieFixture),
+		},
+		now: time.Now,
+		lookupIPv4: func(name string) string {
+			if name == "wlan0" {
+				return "10.0.0.42"
+			}
+			return ""
+		},
+	}
+	metrics, err := collector.collect()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metrics) != 2 || metrics[0].InterfaceName != "eth0" || metrics[0].IPv4Address != "192.168.1.42" || metrics[1].InterfaceName != "wlan0" || metrics[1].IPv4Address != "10.0.0.42" {
+		t.Fatalf("expected both routed and unrouted interfaces: %+v", metrics)
+	}
+}
+
 func TestResolveInterfaceIPv4OverlappingNetworks(t *testing.T) {
 	dir := t.TempDir()
 	route := writeFixture(t, dir, "route", netRouteFixture+"wlan0 0001A8C0 00000000 0001 0 0 0 00FFFFFF 0 0 0\n")

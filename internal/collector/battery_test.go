@@ -66,6 +66,36 @@ func TestBatteryProvidersParse(t *testing.T) {
 	}
 }
 
+func TestIncompleteBatteryReportsFallThrough(t *testing.T) {
+	for _, input := range []string{
+		`{}`, `null`, `{"percentage":null,"status":"CHARGING"}`,
+		`{"percentage":42}`, `{"percentage":-1,"status":"CHARGING"}`,
+		`{"percentage":101,"status":"CHARGING"}`,
+	} {
+		t.Run(input, func(t *testing.T) {
+			metrics := collectBatteryWith([]batteryProvider{
+				termuxBatteryProvider{command: func(context.Context) ([]byte, error) {
+					return []byte(input), nil
+				}},
+				mockBatteryProvider{},
+			})
+			if metrics.Source != BatterySourceMock {
+				t.Fatalf("incomplete Termux report selected %q instead of mock", metrics.Source)
+			}
+		})
+	}
+	for _, input := range []string{"level: 50\n", "level: 105\nstatus: 2\n"} {
+		if _, err := parseDumpsysBattery(input); err == nil {
+			t.Fatalf("expected incomplete dumpsys report %q to fail", input)
+		}
+	}
+	// Campos opcionais podem estar ausentes, sem perder uma leitura válida.
+	metrics, err := parseTermuxBattery([]byte(`{"percentage":0,"status":"UNKNOWN"}`))
+	if err != nil || metrics.LevelPercent != 0 || metrics.Status != "Unknown" || metrics.Health != "Unspecified" {
+		t.Fatalf("valid zero-percent reading: %+v, %v", metrics, err)
+	}
+}
+
 func TestBatteryCommandDeadline(t *testing.T) {
 	start := time.Now()
 	provider := termuxBatteryProvider{command: func(ctx context.Context) ([]byte, error) {
@@ -106,5 +136,11 @@ func TestSysfsBatteryProvider(t *testing.T) {
 	metrics, err := (sysfsBatteryProvider{root: root}).GetMetrics()
 	if err != nil || metrics.Source != BatterySourceSysFS || metrics.LevelPercent != 75 || metrics.Status != "Not charging" || metrics.TemperatureC != 29.5 || metrics.VoltageMV != 4150 || !metrics.IsPlugged {
 		t.Fatalf("sysfs: %+v, %v", metrics, err)
+	}
+	if err := os.Remove(filepath.Join(battery, "status")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (sysfsBatteryProvider{root: root}).GetMetrics(); err == nil {
+		t.Fatal("missing sysfs status must trigger the next battery provider")
 	}
 }

@@ -51,6 +51,9 @@ func parseDumpsysBattery(output string) (*BatteryMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("collector: dumpsys invalid level: %w", err)
 	}
+	if level < 0 || level > 100 || fields["status"] == "" {
+		return nil, fmt.Errorf("collector: dumpsys battery level or status invalid")
+	}
 
 	status := dumpsysStatus(fields["status"])
 	plugged := status == "Charging" || status == "Full" ||
@@ -69,7 +72,7 @@ func parseDumpsysBattery(output string) (*BatteryMetrics, error) {
 	}
 
 	return &BatteryMetrics{
-		LevelPercent: clampPercent(level),
+		LevelPercent: level,
 		Status:       status,
 		Health:       dumpsysHealth(fields["health"]),
 		TemperatureC: temperature,

@@ -34,8 +34,18 @@ func (p sysfsBatteryProvider) GetMetrics() (*BatteryMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("collector: sysfs battery capacity: %w", err)
 	}
+	if capacity < 0 || capacity > 100 {
+		return nil, fmt.Errorf("collector: sysfs battery capacity out of range: %d", capacity)
+	}
 
-	status := normalizeBatteryStatus(readTextFile(filepath.Join(dir, "status")))
+	statusText, err := os.ReadFile(filepath.Join(dir, "status"))
+	if err != nil {
+		return nil, fmt.Errorf("collector: sysfs battery status: %w", err)
+	}
+	if strings.TrimSpace(string(statusText)) == "" {
+		return nil, fmt.Errorf("collector: sysfs battery status is empty")
+	}
+	status := normalizeBatteryStatus(string(statusText))
 	health := normalizeBatteryHealth(readTextFile(filepath.Join(dir, "health")))
 	temperature := batteryTemperatureC(dir, p.root)
 
@@ -50,7 +60,7 @@ func (p sysfsBatteryProvider) GetMetrics() (*BatteryMetrics, error) {
 	}
 
 	return &BatteryMetrics{
-		LevelPercent: clampPercent(capacity),
+		LevelPercent: capacity,
 		Status:       status,
 		Health:       health,
 		TemperatureC: temperature,
@@ -163,17 +173,6 @@ func normalizeBatteryHealth(raw string) string {
 	default:
 		return "Unspecified"
 	}
-}
-
-// clampPercent limita o nível de carga ao intervalo válido [0, 100].
-func clampPercent(value int) int {
-	if value < 0 {
-		return 0
-	}
-	if value > 100 {
-		return 100
-	}
-	return value
 }
 
 // readIntFile lê um arquivo com um inteiro decimal e devolve erro em falha.
