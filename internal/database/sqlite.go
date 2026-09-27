@@ -14,6 +14,11 @@ import (
 const (
 	journalModeWAL      = "wal"
 	journalModeTruncate = "truncate"
+
+	// Pool sob WAL leitores concorrentes não se bloqueiam; o busy_timeout por
+	// conexão serializa a escritora. Valores contidos preservam o budget de RAM.
+	maxOpenConns = 4
+	maxIdleConns = 2
 )
 
 var basePragmas = []string{
@@ -101,8 +106,8 @@ func openConfiguredDB(dbPath, journalMode string) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
 	return db, nil
 }
 
