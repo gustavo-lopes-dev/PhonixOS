@@ -17,6 +17,7 @@ const (
 	CodeDatabaseError          = "DATABASE_ERROR"
 	CodeHardwareCollectorFault = "HARDWARE_COLLECTOR_FAULT"
 	CodeInternalServerError    = "INTERNAL_SERVER_ERROR"
+	CodeUpgradeRequired        = "UPGRADE_REQUIRED"
 )
 
 // CodeForError mapeia sentinelas da camada de persistência para o código e o

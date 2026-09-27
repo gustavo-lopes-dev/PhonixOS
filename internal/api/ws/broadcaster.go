@@ -39,15 +39,25 @@ func (b *Broadcaster) Run(ctx context.Context) {
 		<-timer.C
 	}
 	defer timer.Stop()
+	var nextTick time.Time
 	for {
-		if interval := b.interval(); interval > 0 {
-			timer.Reset(interval)
+		interval := b.interval()
+		if interval == 0 {
+			nextTick = time.Time{}
+		} else {
+			nextTick = nextDeadline(nextTick, time.Now(), interval)
+		}
+		var timerC <-chan time.Time
+		if !nextTick.IsZero() {
+			timer.Reset(time.Until(nextTick))
+			timerC = timer.C
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-timer.C:
+		case <-timerC:
 			b.tick()
+			nextTick = time.Time{}
 		case <-b.hub.Wake():
 			if !timer.Stop() {
 				select {
@@ -55,8 +65,22 @@ func (b *Broadcaster) Run(ctx context.Context) {
 				default:
 				}
 			}
+			if b.hub.immediate.Swap(false) && b.interval() > 0 {
+				b.tick()
+				nextTick = time.Time{}
+			}
 		}
 	}
+}
+
+// Um sinal de mudança pode antecipar um tick, mas nunca adiar o prazo já
+// agendado; assim, notificações frequentes não impedem a coleta.
+func nextDeadline(current, now time.Time, interval time.Duration) time.Time {
+	candidate := now.Add(interval)
+	if current.IsZero() || candidate.Before(current) {
+		return candidate
+	}
+	return current
 }
 
 // interval devolve a cadência do próximo tick: a menor cadência ativa, limitada

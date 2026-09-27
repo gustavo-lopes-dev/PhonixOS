@@ -13,6 +13,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gustavo-lopes-dev/PhonixOS/internal/api"
 	"github.com/gustavo-lopes-dev/PhonixOS/internal/api/handlers"
+	"github.com/gustavo-lopes-dev/PhonixOS/internal/api/ws"
 	"github.com/gustavo-lopes-dev/PhonixOS/internal/database"
 	"github.com/gustavo-lopes-dev/PhonixOS/internal/profile"
 )
@@ -85,6 +86,15 @@ func TestRESTRoutes(t *testing.T) {
 	}
 	path := fmt.Sprintf("/api/v1/shortcuts/%d", shortcut.ID)
 	request(http.MethodPut, path, `{"is_pinned":true}`, http.StatusOK, "")
+	request(http.MethodPut, path, `{"icon_url":"https://example.org/icon.png"}`, http.StatusOK, "")
+	cleared := request(http.MethodPut, path, `{"icon_url":null}`, http.StatusOK, "")
+	if string(cleared["data"]) == "" {
+		t.Fatal("missing cleared shortcut")
+	}
+	var clearedShortcut database.Shortcut
+	if err := json.Unmarshal(cleared["data"], &clearedShortcut); err != nil || clearedShortcut.IconURL != nil {
+		t.Fatalf("null icon_url was not persisted: %+v (%v)", clearedShortcut, err)
+	}
 	request(http.MethodPut, "/api/v1/shortcuts/nope", `{}`, http.StatusBadRequest, api.CodeValidationFailed)
 	request(http.MethodDelete, path, "", http.StatusOK, "")
 	request(http.MethodDelete, path, "", http.StatusNotFound, api.CodeShortcutNotFound)
@@ -122,5 +132,21 @@ func TestRecoverEnvelope(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusInternalServerError || body.Success || body.Error.Code != api.CodeInternalServerError {
 		t.Fatalf("recover: %d %+v", resp.StatusCode, body)
+	}
+}
+
+func TestWebSocketRequiresUpgrade(t *testing.T) {
+	app := api.NewServer(api.Routes{}, ws.NewHub(&profile.SystemProfile{RecommendedPollIntervalS: 2}))
+	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/ws/telemetry", nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var body api.APIErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusUpgradeRequired || body.Error.Code != api.CodeUpgradeRequired {
+		t.Fatalf("upgrade response: %d %+v", resp.StatusCode, body)
 	}
 }

@@ -2,6 +2,7 @@ package ws
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gustavo-lopes-dev/PhonixOS/internal/collector"
@@ -20,11 +21,13 @@ type Hub struct {
 
 	mu      sync.RWMutex
 	clients map[*client]struct{}
+	closing bool
 
 	snapMu   sync.RWMutex
 	snapshot *collector.HardwareMetrics
 
-	wake chan struct{}
+	wake      chan struct{}
+	immediate atomic.Bool
 }
 
 // NewHub cria o registro de conexões para o perfil detectado no boot.
@@ -52,11 +55,17 @@ func (h *Hub) Profile() *profile.SystemProfile {
 	return &copied
 }
 
-func (h *Hub) add(c *client) {
+func (h *Hub) add(c *client) bool {
 	h.mu.Lock()
+	if h.closing {
+		h.mu.Unlock()
+		c.closeGracefully(time.Now().Add(500 * time.Millisecond))
+		return false
+	}
 	h.clients[c] = struct{}{}
 	h.mu.Unlock()
 	h.Notify()
+	return true
 }
 
 func (h *Hub) remove(c *client) {
@@ -64,6 +73,22 @@ func (h *Hub) remove(c *client) {
 	delete(h.clients, c)
 	h.mu.Unlock()
 	h.Notify()
+}
+
+// CloseAll encerra as sessões ativas no shutdown do servidor.
+func (h *Hub) CloseAll() {
+	h.mu.Lock()
+	h.closing = true
+	clients := make([]*client, 0, len(h.clients))
+	for c := range h.clients {
+		clients = append(clients, c)
+	}
+	h.mu.Unlock()
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for _, c := range clients {
+		c.closeGracefully(deadline)
+		h.remove(c)
+	}
 }
 
 // Clients devolve uma cópia da lista de conexões ativas para iteração segura
@@ -99,6 +124,13 @@ func (h *Hub) Notify() {
 	case h.wake <- struct{}{}:
 	default:
 	}
+}
+
+// RequestSnapshot pede uma coleta compartilhada imediata quando não há
+// snapshot recente para atender a retomada de uma sessão.
+func (h *Hub) RequestSnapshot() {
+	h.immediate.Store(true)
+	h.Notify()
 }
 
 // Wake expõe o canal de sinalização consumido pelo broadcaster.

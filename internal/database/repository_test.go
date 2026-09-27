@@ -93,6 +93,56 @@ func TestShortcutLifecycle(t *testing.T) {
 	}
 }
 
+func TestPartialUpdatesPreserveConcurrentFields(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	shortcut, err := store.CreateShortcut(ctx, CreateShortcutDTO{Title: "Original", URL: "http://local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 20; i++ {
+		var wg sync.WaitGroup
+		failures := make(chan error, 4)
+		wg.Add(4)
+		go func() {
+			defer wg.Done()
+			_, err := store.UpdateShortcut(ctx, shortcut.ID, UpdateShortcutDTO{Title: stringPtr(fmt.Sprintf("Title %d", i))})
+			failures <- err
+		}()
+		go func() {
+			defer wg.Done()
+			_, err := store.UpdateShortcut(ctx, shortcut.ID, UpdateShortcutDTO{DisplayOrder: intPtr(i + 1)})
+			failures <- err
+		}()
+		go func() {
+			defer wg.Done()
+			_, err := store.UpdateSettings(ctx, UpdateSettingsDTO{InstanceName: stringPtr(fmt.Sprintf("Server %d", i))})
+			failures <- err
+		}()
+		go func() {
+			defer wg.Done()
+			_, err := store.UpdateSettings(ctx, UpdateSettingsDTO{CustomPollIntervalMS: intPtr(i + 1)})
+			failures <- err
+		}()
+		wg.Wait()
+		close(failures)
+		for err := range failures {
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		gotShortcut, err := store.GetShortcut(ctx, shortcut.ID)
+		if err != nil || gotShortcut.Title != fmt.Sprintf("Title %d", i) || gotShortcut.DisplayOrder != i+1 {
+			t.Fatalf("shortcut lost an update: %+v (%v)", gotShortcut, err)
+		}
+		gotSettings, err := store.GetSettings(ctx)
+		if err != nil || gotSettings.InstanceName != fmt.Sprintf("Server %d", i) || gotSettings.CustomPollIntervalMS != i+1 {
+			t.Fatalf("settings lost an update: %+v (%v)", gotSettings, err)
+		}
+	}
+}
+
 func TestUpdateLayoutCardsAtomic(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()

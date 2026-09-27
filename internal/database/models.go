@@ -74,6 +74,8 @@ type UpdateShortcutDTO struct {
 	Category     *string `json:"category" validate:"omitempty,max=32"`
 	DisplayOrder *int    `json:"display_order"`
 	IsPinned     *bool   `json:"is_pinned"`
+	// IconURLPresent distinguishes an explicit JSON null (clear) from an absent field.
+	IconURLPresent bool `json:"-"`
 }
 
 type UpdateLayoutCardDTO struct {

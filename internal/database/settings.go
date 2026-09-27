@@ -25,35 +25,26 @@ func (s *Store) GetSettings(ctx context.Context) (*DashboardSettings, error) {
 	return settings, nil
 }
 
-// UpdateSettings aplica os campos presentes no DTO sobre o singleton e renova
-// updated_at via strftime, devolvendo a configuração persistida.
+// UpdateSettings altera apenas os campos presentes em uma única instrução
+// atômica, sem sobrescrever PATCHes concorrentes de outros campos.
 func (s *Store) UpdateSettings(ctx context.Context, dto UpdateSettingsDTO) (*DashboardSettings, error) {
-	current, err := s.GetSettings(ctx)
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE dashboard_settings SET instance_name = COALESCE(?, instance_name),
+		 theme_mode = COALESCE(?, theme_mode), force_lite_mode = COALESCE(?, force_lite_mode),
+		 custom_poll_interval_ms = COALESCE(?, custom_poll_interval_ms),
+		 battery_saver_threshold = COALESCE(?, battery_saver_threshold),
+		 updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`,
+		dto.InstanceName, dto.ThemeMode, dto.ForceLiteMode,
+		dto.CustomPollIntervalMS, dto.BatterySaverThreshold, settingsSingletonID)
 	if err != nil {
-		return nil, err
-	}
-
-	if dto.InstanceName != nil {
-		current.InstanceName = *dto.InstanceName
-	}
-	if dto.ThemeMode != nil {
-		current.ThemeMode = *dto.ThemeMode
-	}
-	if dto.ForceLiteMode != nil {
-		current.ForceLiteMode = *dto.ForceLiteMode
-	}
-	if dto.CustomPollIntervalMS != nil {
-		current.CustomPollIntervalMS = *dto.CustomPollIntervalMS
-	}
-	if dto.BatterySaverThreshold != nil {
-		current.BatterySaverThreshold = *dto.BatterySaverThreshold
-	}
-
-	if _, err := s.db.ExecContext(ctx,
-		"UPDATE dashboard_settings SET instance_name = ?, theme_mode = ?, force_lite_mode = ?, custom_poll_interval_ms = ?, battery_saver_threshold = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
-		current.InstanceName, current.ThemeMode, boolToInt(current.ForceLiteMode),
-		current.CustomPollIntervalMS, current.BatterySaverThreshold, settingsSingletonID); err != nil {
 		return nil, queryErr("update settings", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, queryErr("update settings", err)
+	}
+	if affected == 0 {
+		return nil, fmt.Errorf("update settings: singleton row id = %d missing", settingsSingletonID)
 	}
 	return s.GetSettings(ctx)
 }

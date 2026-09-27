@@ -68,6 +68,8 @@ func serverError(c *fiber.Ctx, err error) error {
 		status, code, message = http.StatusNotFound, "RESOURCE_NOT_FOUND", "Rota não encontrada."
 	case errors.As(err, &fiberErr) && fiberErr.Code == http.StatusMethodNotAllowed:
 		status, code, message = http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Método não permitido para esta rota."
+	case errors.As(err, &fiberErr) && fiberErr.Code == http.StatusUpgradeRequired:
+		status, code, message = http.StatusUpgradeRequired, CodeUpgradeRequired, "Esta rota exige upgrade WebSocket."
 	default:
 		slog.Error("rest: unhandled error", "error", err)
 	}

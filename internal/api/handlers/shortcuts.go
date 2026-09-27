@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -65,6 +66,11 @@ func (h Shortcuts) Update(c *fiber.Ctx) error {
 	if err := parseBody(c, &dto); err != nil {
 		return err
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(c.Body(), &fields); err != nil {
+		return err
+	}
+	_, dto.IconURLPresent = fields["icon_url"]
 	if dto.Title != nil && !validLength(*dto.Title, 64) ||
 		dto.URL != nil && !validURL(*dto.URL) ||
 		dto.IconURL != nil && !validURL(*dto.IconURL) ||

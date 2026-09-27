@@ -83,37 +83,27 @@ func (s *Store) CreateShortcut(ctx context.Context, dto CreateShortcutDTO) (*Sho
 	return s.GetShortcut(ctx, id)
 }
 
-// UpdateShortcut aplica os campos presentes no DTO sobre o registro atual e
-// renova updated_at via strftime. Ausência do atalho devolve ErrShortcutNotFound.
+// UpdateShortcut altera somente os campos presentes em uma única instrução,
+// preservando atualizações concorrentes de outros campos. IconURLPresent permite
+// limpar icon_url com JSON null sem confundi-lo com um campo omitido.
 func (s *Store) UpdateShortcut(ctx context.Context, id int64, dto UpdateShortcutDTO) (*Shortcut, error) {
-	current, err := s.GetShortcut(ctx, id)
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE shortcuts SET title = COALESCE(?, title), url = COALESCE(?, url),
+		 icon_url = CASE WHEN ? THEN ? ELSE icon_url END,
+		 category = COALESCE(?, category), display_order = COALESCE(?, display_order),
+		 is_pinned = COALESCE(?, is_pinned), updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+		 WHERE id = ?`,
+		dto.Title, dto.URL, dto.IconURLPresent || dto.IconURL != nil, nullString(dto.IconURL),
+		dto.Category, dto.DisplayOrder, dto.IsPinned, id)
 	if err != nil {
-		return nil, err
-	}
-
-	if dto.Title != nil {
-		current.Title = *dto.Title
-	}
-	if dto.URL != nil {
-		current.URL = *dto.URL
-	}
-	if dto.IconURL != nil {
-		current.IconURL = dto.IconURL
-	}
-	if dto.Category != nil {
-		current.Category = *dto.Category
-	}
-	if dto.DisplayOrder != nil {
-		current.DisplayOrder = *dto.DisplayOrder
-	}
-	if dto.IsPinned != nil {
-		current.IsPinned = *dto.IsPinned
-	}
-
-	if _, err := s.db.ExecContext(ctx,
-		"UPDATE shortcuts SET title = ?, url = ?, icon_url = ?, category = ?, display_order = ?, is_pinned = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?",
-		current.Title, current.URL, nullString(current.IconURL), current.Category, current.DisplayOrder, boolToInt(current.IsPinned), id); err != nil {
 		return nil, queryErr("update shortcut", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, queryErr("update shortcut", err)
+	}
+	if affected == 0 {
+		return nil, fmt.Errorf("%w: id %d", ErrShortcutNotFound, id)
 	}
 	return s.GetShortcut(ctx, id)
 }

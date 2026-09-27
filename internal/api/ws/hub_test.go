@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"sync"
@@ -13,11 +14,12 @@ import (
 )
 
 type fakeConn struct {
-	read      chan []byte
-	done      chan struct{}
-	closeOnce sync.Once
-	mu        sync.Mutex
-	writes    [][]byte
+	read       chan []byte
+	done       chan struct{}
+	closeOnce  sync.Once
+	mu         sync.Mutex
+	writes     [][]byte
+	closeFrame bool
 }
 
 func newFakeConn() *fakeConn {
@@ -46,6 +48,15 @@ func (f *fakeConn) WriteMessage(_ int, data []byte) error {
 }
 
 func (f *fakeConn) SetReadLimit(int64) {}
+
+func (f *fakeConn) WriteControl(messageType int, _ []byte, _ time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if messageType == websocket.CloseMessage {
+		f.closeFrame = true
+	}
+	return nil
+}
 
 func (f *fakeConn) Close() error {
 	f.closeOnce.Do(func() { close(f.done) })
@@ -134,6 +145,9 @@ func TestClientActions(t *testing.T) {
 	if got := c.currentCadence(); got != 1500*time.Millisecond {
 		t.Fatalf("set_rate cadence = %v, want 1.5s", got)
 	}
+	if remaining := time.Until(c.nextSend); remaining < time.Second || remaining > 2*time.Second {
+		t.Fatalf("new rate was not applied to the next send: %v", remaining)
+	}
 
 	c.handleAction([]byte(`{"action":"set_rate"}`))
 	if got := c.currentCadence(); got != 1500*time.Millisecond {
@@ -221,5 +235,99 @@ func TestBroadcasterIntervalAdapts(t *testing.T) {
 	c.mu.Unlock()
 	if got := b.interval(); got != 0 {
 		t.Fatalf("paused-only interval = %v, want 0", got)
+	}
+}
+
+func TestBroadcasterDoesNotStarveOnFrequentNotifications(t *testing.T) {
+	hub := NewHub(&profile.SystemProfile{RecommendedPollIntervalS: 1})
+	c := newClient(hub, newFakeConn())
+	hub.add(c)
+	b := newBroadcasterWith(hub, func() (*collector.HardwareMetrics, error) {
+		return &collector.HardwareMetrics{Timestamp: time.Now().UTC()}, nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { b.Run(ctx); close(done) }()
+	defer func() { cancel(); <-done }()
+
+	until := time.After(1500 * time.Millisecond)
+	notify := time.NewTicker(10 * time.Millisecond)
+	defer notify.Stop()
+	for {
+		select {
+		case <-notify.C:
+			hub.Notify()
+		case <-c.send:
+			return
+		case <-until:
+			t.Fatal("frequent hub notifications starved telemetry")
+		}
+	}
+}
+
+func TestResumeWithoutFreshSnapshotRequestsSharedCollection(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		stale bool
+	}{{name: "no snapshot"}, {name: "stale snapshot", stale: true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			hub := NewHub(&profile.SystemProfile{RecommendedPollIntervalS: 5})
+			c := newClient(hub, newFakeConn())
+			hub.add(c)
+			c.handleAction([]byte(`{"action":"pause"}`))
+			if tc.stale {
+				hub.SetSnapshot(&collector.HardwareMetrics{Timestamp: time.Now().Add(-time.Hour).UTC()})
+			}
+			b := newBroadcasterWith(hub, func() (*collector.HardwareMetrics, error) {
+				return &collector.HardwareMetrics{Timestamp: time.Now().UTC()}, nil
+			})
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan struct{})
+			go func() { b.Run(ctx); close(done) }()
+			defer func() { cancel(); <-done }()
+
+			c.handleAction([]byte(`{"action":"resume"}`))
+			select {
+			case raw := <-c.send:
+				var envelope struct {
+					Payload collector.HardwareMetrics `json:"payload"`
+				}
+				if err := json.Unmarshal(raw, &envelope); err != nil || time.Since(envelope.Payload.Timestamp) > time.Second {
+					t.Fatalf("resume sent a stale snapshot: %s (%v)", raw, err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("resume did not request immediate collection")
+			}
+		})
+	}
+}
+
+func TestCloseAllClosesWebSocketSessions(t *testing.T) {
+	hub := NewHub(&profile.SystemProfile{RecommendedPollIntervalS: 5})
+	conn := newFakeConn()
+	hub.add(newClient(hub, conn))
+	hub.CloseAll()
+	if len(hub.Clients()) != 0 {
+		t.Fatal("hub kept sessions after shutdown")
+	}
+	conn.mu.Lock()
+	closeFrame := conn.closeFrame
+	conn.mu.Unlock()
+	if !closeFrame {
+		t.Fatal("shutdown did not send a normal close frame")
+	}
+	select {
+	case <-conn.done:
+	default:
+		t.Fatal("shutdown did not close the connection")
+	}
+	late := newFakeConn()
+	if hub.add(newClient(hub, late)) {
+		t.Fatal("hub accepted a session after shutdown began")
+	}
+	select {
+	case <-late.done:
+	default:
+		t.Fatal("hub did not close a late session")
 	}
 }

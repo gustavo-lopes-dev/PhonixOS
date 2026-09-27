@@ -62,7 +62,11 @@ func run() error {
 	broadcaster := ws.NewBroadcaster(hub)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go broadcaster.Run(ctx)
+	broadcastDone := make(chan struct{})
+	go func() {
+		defer close(broadcastDone)
+		broadcaster.Run(ctx)
+	}()
 
 	app := api.NewServer(api.Routes{
 		Health: system.Health, Profile: system.GetProfile, Metrics: system.Metrics,
@@ -81,10 +85,15 @@ func run() error {
 
 	select {
 	case err := <-listenErr:
+		cancel()
+		<-broadcastDone
+		hub.CloseAll()
 		return err
 	case <-shutdown:
 		slog.Info("shutting down server")
 		cancel()
+		<-broadcastDone
+		hub.CloseAll()
 		if err := app.ShutdownWithTimeout(5 * time.Second); err != nil {
 			return err
 		}

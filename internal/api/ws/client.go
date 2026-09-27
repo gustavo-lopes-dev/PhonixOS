@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -28,6 +29,7 @@ type messageConn interface {
 	ReadMessage() (messageType int, p []byte, err error)
 	WriteMessage(messageType int, data []byte) error
 	SetReadLimit(limit int64)
+	WriteControl(messageType int, data []byte, deadline time.Time) error
 	Close() error
 }
 
@@ -77,7 +79,9 @@ func (h *Hub) handleConn(conn messageConn) {
 	c := newClient(h, conn)
 	go c.writePump()
 	c.enqueue(eventSystemProfile, h.Profile())
-	h.add(c)
+	if !h.add(c) {
+		return
+	}
 	c.readPump()
 	h.remove(c)
 	c.close()
@@ -114,7 +118,7 @@ func (c *client) handleAction(data []byte) {
 	case actionResume:
 		c.resume()
 	case actionSetRate:
-		if message.RateMS == nil || *message.RateMS < 0 {
+		if message.RateMS == nil || *message.RateMS < 0 || int64(*message.RateMS) > math.MaxInt64/int64(time.Millisecond) {
 			slog.Debug("ws: rejected set_rate", "rate_ms", message.RateMS)
 			return
 		}
@@ -130,10 +134,19 @@ func (c *client) resume() {
 	now := time.Now()
 	c.mu.Lock()
 	c.paused = false
-	c.nextSend = now.Add(c.cadenceLocked())
+	cadence := c.cadenceLocked()
+	snapshot := c.hub.Snapshot()
+	fresh := snapshot != nil && !snapshot.Timestamp.IsZero() && now.Sub(snapshot.Timestamp) < cadence
+	if fresh {
+		c.nextSend = now.Add(cadence)
+	} else {
+		c.nextSend = now
+	}
 	c.mu.Unlock()
-	if snapshot := c.hub.Snapshot(); snapshot != nil {
+	if fresh {
 		c.enqueue(eventTelemetryTick, snapshot)
+	} else {
+		c.hub.RequestSnapshot()
 	}
 	c.hub.Notify()
 }
@@ -147,8 +160,18 @@ func (c *client) setRate(rate time.Duration) {
 	} else {
 		c.override = rate
 	}
+	c.nextSend = time.Now().Add(c.cadenceLocked())
 	c.mu.Unlock()
 	c.hub.Notify()
+}
+
+func (c *client) closeGracefully(deadline time.Time) {
+	if err := c.conn.WriteControl(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+		deadline); err != nil {
+		slog.Debug("ws: send close frame", "error", err)
+	}
+	c.close()
 }
 
 func (c *client) cadenceLocked() time.Duration {
