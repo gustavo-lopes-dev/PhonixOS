@@ -5,10 +5,12 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gustavo-lopes-dev/PhonixOS/internal/api/ws"
 )
 
 // Routes define os handlers REST injetados pelo ponto de entrada.
@@ -20,12 +22,20 @@ type Routes struct {
 	GetLayout, PutLayout           fiber.Handler
 }
 
-// NewServer configura o Fiber e registra todas as rotas REST da versão 1.
-func NewServer(routes Routes) *fiber.App {
+// NewServer configura o Fiber e registra todas as rotas REST da versão 1 e o
+// canal WebSocket de telemetria conectado ao Hub injetado.
+func NewServer(routes Routes, hub *ws.Hub) *fiber.App {
 	app := fiber.New(fiber.Config{ErrorHandler: serverError})
 	app.Use(recover.New())
 	app.Use(logger.New(logger.Config{Format: "${time} ${status} ${method} ${path}\n"}))
 	app.Use(cors.New(cors.Config{AllowOrigins: "*", AllowMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS", AllowHeaders: "Origin,Content-Type,Accept"}))
+
+	app.Use("/ws", func(c *fiber.Ctx) error {
+		if websocket.IsWebSocketUpgrade(c) {
+			return c.Next()
+		}
+		return fiber.ErrUpgradeRequired
+	})
 
 	apiV1 := app.Group("/api/v1")
 	apiV1.Get("/health", routes.Health)
@@ -39,6 +49,9 @@ func NewServer(routes Routes) *fiber.App {
 	apiV1.Patch("/settings", routes.PatchSettings)
 	apiV1.Get("/layout", routes.GetLayout)
 	apiV1.Put("/layout", routes.PutLayout)
+	if hub != nil {
+		app.Get("/ws/telemetry", websocket.New(hub.Handle))
+	}
 	return app
 }
 

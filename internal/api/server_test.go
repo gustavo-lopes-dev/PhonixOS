@@ -40,7 +40,7 @@ func TestRESTRoutes(t *testing.T) {
 		UpdateShortcut: shortcuts.Update, DeleteShortcut: shortcuts.Delete,
 		GetSettings: settings.Get, PatchSettings: settings.Patch,
 		GetLayout: settings.GetLayout, PutLayout: settings.PutLayout,
-	})
+	}, nil)
 	request := func(method, path, body string, status int, code string) map[string]json.RawMessage {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -110,7 +110,7 @@ func TestRESTRoutes(t *testing.T) {
 }
 
 func TestRecoverEnvelope(t *testing.T) {
-	app := api.NewServer(api.Routes{Health: func(*fiber.Ctx) error { panic("test") }})
+	app := api.NewServer(api.Routes{Health: func(*fiber.Ctx) error { panic("test") }}, nil)
 	resp, err := app.Test(httptest.NewRequest(http.MethodGet, "/api/v1/health", nil))
 	if err != nil {
 		t.Fatal(err)
