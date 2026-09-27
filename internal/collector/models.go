@@ -1,5 +1,7 @@
 package collector
 
+import "time"
+
 // BatterySource identifica o nível de fallback acionado na coleta de energia.
 type BatterySource string
 
@@ -46,4 +48,21 @@ type MemoryMetrics struct {
 	UsagePercent   float64 `json:"usage_percent"`
 	CachedBytes    uint64  `json:"cached_bytes"`
 	BuffersBytes   uint64  `json:"buffers_bytes"`
+}
+
+// NetworkMetrics detalha a velocidade e o IPv4 de cada interface ativa.
+type NetworkMetrics struct {
+	InterfaceName string `json:"interface_name"`
+	IPv4Address   string `json:"ipv4_address"`
+	BytesSentSec  uint64 `json:"bytes_sent_sec"`
+	BytesRecvSec  uint64 `json:"bytes_recv_sec"`
+}
+
+// HardwareMetrics consolida o snapshot completo de telemetria de hardware.
+type HardwareMetrics struct {
+	Timestamp time.Time        `json:"timestamp"`
+	CPU       CPUMetrics       `json:"cpu"`
+	Memory    MemoryMetrics    `json:"memory"`
+	Battery   BatteryMetrics   `json:"battery"`
+	Network   []NetworkMetrics `json:"network"`
 }
