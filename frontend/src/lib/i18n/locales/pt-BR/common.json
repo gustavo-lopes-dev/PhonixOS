@@ -1,0 +1,17 @@
+{
+	"cancel": "Cancelar",
+	"save": "Salvar",
+	"close": "Fechar",
+	"discard": "Descartar",
+	"edit": "Editar",
+	"hide": "Ocultar",
+	"show": "+ Mostrar",
+	"retry": "Tentar novamente",
+	"loading": "Carregando…",
+	"notAvailable": "N/D",
+	"unavailable": "Indisponível",
+	"noValue": "—",
+	"errorNetwork": "Não foi possível conectar ao servidor",
+	"errorTimeout": "O servidor demorou para responder",
+	"errorInvalidResponse": "Resposta inválida do servidor"
+}

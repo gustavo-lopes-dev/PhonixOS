@@ -1,0 +1,14 @@
+{
+	"connecting": "Connecting…",
+	"connected": "Connected",
+	"offline": "Offline",
+	"live": "Live",
+	"stale": "Stale · {time}",
+	"updatedEvery": "Updated at {time} · every {n} s",
+	"retryCountdown": "Retrying in {n} s (attempt {k})…",
+	"reconnectNow": "Reconnect now",
+	"waitingFirstReading": "Waiting for first reading…",
+	"noReadingSource": "No reading source",
+	"noReading": "No reading",
+	"noBatterySource": "No battery source responded"
+}

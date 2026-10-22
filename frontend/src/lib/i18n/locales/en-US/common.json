@@ -1,0 +1,17 @@
+{
+	"cancel": "Cancel",
+	"save": "Save",
+	"close": "Close",
+	"discard": "Discard",
+	"edit": "Edit",
+	"hide": "Hide",
+	"show": "+ Show",
+	"retry": "Try again",
+	"loading": "Loading…",
+	"notAvailable": "N/A",
+	"unavailable": "Unavailable",
+	"noValue": "—",
+	"errorNetwork": "Could not reach the server",
+	"errorTimeout": "The server took too long to respond",
+	"errorInvalidResponse": "Invalid server response"
+}
