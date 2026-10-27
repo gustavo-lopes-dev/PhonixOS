@@ -8,6 +8,7 @@ import type connection from './locales/pt-BR/connection.json';
 import type launcher from './locales/pt-BR/launcher.json';
 import type layout from './locales/pt-BR/layout.json';
 import type metrics from './locales/pt-BR/metrics.json';
+import type shell from './locales/pt-BR/shell.json';
 
 export interface Namespaces {
 	common: typeof common;
@@ -15,6 +16,7 @@ export interface Namespaces {
 	launcher: typeof launcher;
 	layout: typeof layout;
 	metrics: typeof metrics;
+	shell: typeof shell;
 }
 
 type PluralSuffix = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other';
