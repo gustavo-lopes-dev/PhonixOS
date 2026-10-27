@@ -13,5 +13,8 @@
 	"noValue": "—",
 	"errorNetwork": "Não foi possível conectar ao servidor",
 	"errorTimeout": "O servidor demorou para responder",
-	"errorInvalidResponse": "Resposta inválida do servidor"
+	"errorInvalidResponse": "Resposta inválida do servidor",
+	"on": "Ligado",
+	"off": "Desligado",
+	"optional": "opcional"
 }

@@ -5,10 +5,16 @@
 
 import type common from './locales/pt-BR/common.json';
 import type connection from './locales/pt-BR/connection.json';
+import type launcher from './locales/pt-BR/launcher.json';
+import type layout from './locales/pt-BR/layout.json';
+import type metrics from './locales/pt-BR/metrics.json';
 
 export interface Namespaces {
 	common: typeof common;
 	connection: typeof connection;
+	launcher: typeof launcher;
+	layout: typeof layout;
+	metrics: typeof metrics;
 }
 
 type PluralSuffix = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other';

@@ -13,5 +13,8 @@
 	"noValue": "—",
 	"errorNetwork": "Could not reach the server",
 	"errorTimeout": "The server took too long to respond",
-	"errorInvalidResponse": "Invalid server response"
+	"errorInvalidResponse": "Invalid server response",
+	"on": "On",
+	"off": "Off",
+	"optional": "optional"
 }
