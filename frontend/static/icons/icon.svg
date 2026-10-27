@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+	<!-- Marca da sidebar (handoff §A.1): 36×36, raio 10, btnPrimary, "P" IBM Plex Sans 700 16 px. -->
+	<rect width="512" height="512" rx="142.22" fill="#2f6fe0"/>
+	<!-- Glifo "P" do IBM Plex Sans Bold (unidades da fonte, 1000/em), escalado a 16/36 do quadrado e centralizado. -->
+	<path fill="#ffffff" transform="matrix(0.22756 0 0 -0.22756 176.81 335.42)" d="M229 0H77V698H407Q472 698 519.5 670Q567 642 593 591.5Q619 541 619 475Q619 409 593 359Q567 309 519.5 280.5Q472 252 407 252H229ZM229 566V384H389Q412 384 428 392Q444 400 453 415.5Q462 431 462 453V497Q462 520 453 535Q444 550 428 558Q412 566 389 566Z"/>
+</svg>
