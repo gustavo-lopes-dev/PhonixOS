@@ -8,6 +8,7 @@ import type connection from './locales/pt-BR/connection.json';
 import type launcher from './locales/pt-BR/launcher.json';
 import type layout from './locales/pt-BR/layout.json';
 import type metrics from './locales/pt-BR/metrics.json';
+import type settings from './locales/pt-BR/settings.json';
 import type shell from './locales/pt-BR/shell.json';
 
 export interface Namespaces {
@@ -16,6 +17,7 @@ export interface Namespaces {
 	launcher: typeof launcher;
 	layout: typeof layout;
 	metrics: typeof metrics;
+	settings: typeof settings;
 	shell: typeof shell;
 }
 
