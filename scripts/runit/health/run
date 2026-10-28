@@ -1,0 +1,83 @@
+#!/data/data/com.termux/files/usr/bin/sh
+# PhonixOS — serviço auxiliar de monitoramento (runit/termux-services, sem root).
+# Instalado pelo scripts/install.sh (4.3) como serviço próprio ao lado de "phonixos".
+# A cada intervalo executa o check do serviço principal; após a janela inicial de subida,
+# falhas consecutivas persistentes resultam em `sv restart phonixos`, com intervalo mínimo
+# entre tentativas. O runsv continua responsável por reiniciar o processo quando ele termina;
+# este serviço cobre apenas o processo vivo que deixou de responder.
+
+exec 2>&1
+
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+PATH="$PREFIX/bin:$PATH"
+SVDIR="${SVDIR:-$PREFIX/var/service}"
+export PREFIX PATH SVDIR
+
+PHONIX_SERVICE="${PHONIX_SERVICE:-phonixos}"
+PHONIX_CHECK="${PHONIX_CHECK:-$SVDIR/$PHONIX_SERVICE/check}"
+HEALTH_INTERVAL="${HEALTH_INTERVAL:-10}"   # segundos entre verificações
+HEALTH_GRACE="${HEALTH_GRACE:-30}"         # tempo mínimo em execução antes de avaliar
+HEALTH_FAILURES="${HEALTH_FAILURES:-3}"    # falhas consecutivas para pedir restart
+HEALTH_COOLDOWN="${HEALTH_COOLDOWN:-120}"  # intervalo mínimo entre pedidos de restart
+HEALTH_RESTART_WAIT="${HEALTH_RESTART_WAIT:-15}" # espera do `sv -w` pelo novo processo
+
+if [ ! -x "$PHONIX_CHECK" ]; then
+	echo "phonixos-health: check script not found or not executable: $PHONIX_CHECK"
+	sleep 30
+	exit 1
+fi
+
+# Imprime "<pid> <segundos>" quando o serviço está em execução e deve continuar assim;
+# nada quando está parado, terminando ou com parada solicitada pelo administrador.
+service_uptime() {
+	sv status "$PHONIX_SERVICE" 2>/dev/null | sed -n \
+		-e '/want down/d' \
+		-e 's/^run: [^(]*(pid \([0-9][0-9]*\)) \([0-9][0-9]*\)s.*/\1 \2/p'
+}
+
+failures=0
+last_restart=0
+
+while :; do
+	sleep "$HEALTH_INTERVAL"
+
+	info=$(service_uptime)
+	if [ -z "$info" ]; then
+		failures=0
+		continue
+	fi
+	pid=${info% *}
+	uptime=${info#* }
+
+	if [ "$uptime" -lt "$HEALTH_GRACE" ]; then
+		failures=0
+		continue
+	fi
+
+	if "$PHONIX_CHECK"; then
+		failures=0
+		continue
+	fi
+
+	failures=$((failures + 1))
+	echo "phonixos-health: health check failed, pid $pid ($failures consecutive, threshold $HEALTH_FAILURES)"
+	[ "$failures" -lt "$HEALTH_FAILURES" ] && continue
+
+	now=$(date +%s)
+	if [ $((now - last_restart)) -lt "$HEALTH_COOLDOWN" ]; then
+		continue
+	fi
+	last_restart=$now
+	failures=0
+
+	echo "phonixos-health: requesting restart of $PHONIX_SERVICE"
+	if ! sv -w "$HEALTH_RESTART_WAIT" restart "$PHONIX_SERVICE"; then
+		# Processo travado que ignora TERM mantém o mesmo pid: força o término e deixa
+		# o runsv subir uma nova instância.
+		info=$(service_uptime)
+		if [ "${info% *}" = "$pid" ]; then
+			echo "phonixos-health: pid $pid did not stop, sending KILL"
+			sv kill "$PHONIX_SERVICE"
+		fi
+	fi
+done

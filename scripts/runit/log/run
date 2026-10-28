@@ -1,0 +1,20 @@
+#!/data/data/com.termux/files/usr/bin/sh
+# PhonixOS — serviço de log do runit: recebe stdout/stderr de ../run pelo pipe do runsv.
+# Instalado em $PREFIX/var/service/phonixos/log/run; logs em $PREFIX/var/log/sv/phonixos
+# (convenção do termux-services), com rotação pelo svlogd.
+
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+PATH="$PREFIX/bin:$PATH"
+export PATH
+
+PHONIX_LOG_DIR="${PHONIX_LOG_DIR:-$PREFIX/var/log/sv/phonixos}"
+
+mkdir -p "$PHONIX_LOG_DIR" || exit 1
+
+# Rotação padrão limitada para o armazenamento do aparelho (5 arquivos de ~1 MB);
+# um config existente, editado pelo usuário, é preservado.
+if [ ! -f "$PHONIX_LOG_DIR/config" ]; then
+	printf 's1000000\nn5\n' >"$PHONIX_LOG_DIR/config" || exit 1
+fi
+
+exec svlogd -tt "$PHONIX_LOG_DIR"

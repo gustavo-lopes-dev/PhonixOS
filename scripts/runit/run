@@ -1,0 +1,27 @@
+#!/data/data/com.termux/files/usr/bin/sh
+# PhonixOS — serviço principal runit (termux-services, sem root).
+# Instalado pelo scripts/install.sh (4.3) em $PREFIX/var/service/phonixos/run.
+# O runsv reinicia o processo sempre que ele terminar; stdout/stderr seguem pelo pipe
+# do runit para log/run (svlogd).
+
+exec 2>&1
+
+PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+HOME="${HOME:-/data/data/com.termux/files/home}"
+PATH="$PREFIX/bin:$PATH"
+export PREFIX HOME PATH
+
+PHONIX_BIN="${PHONIX_BIN:-$HOME/.phonixos/bin/phonixos}"
+
+if [ ! -x "$PHONIX_BIN" ]; then
+	echo "phonixos: binary not found or not executable: $PHONIX_BIN"
+	# Evita um ciclo de reinício a cada segundo enquanto o binário estiver ausente.
+	sleep 30
+	exit 1
+fi
+
+# Diretório de trabalho fora do diretório do serviço: o banco resolve
+# $APP_DATA_DIR -> $HOME/data -> ./data (internal/database).
+cd "$HOME" || exit 1
+
+exec "$PHONIX_BIN"
