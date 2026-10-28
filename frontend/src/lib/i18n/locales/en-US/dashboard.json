@@ -1,0 +1,10 @@
+{
+	"settingsLoadError": "Couldn't load the settings",
+	"layoutLoadError": "Couldn't load the layout",
+	"shortcutsLoadError": "Couldn't load the shortcuts",
+	"layoutSaveError": "Couldn't save the layout",
+	"shortcutSaveError": "Couldn't save the shortcut",
+	"shortcutDeleteError": "Couldn't delete the shortcut",
+	"savingLayout": "Saving layout…",
+	"loadErrorMany": "Couldn't load the dashboard data"
+}

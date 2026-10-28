@@ -1,0 +1,10 @@
+{
+	"settingsLoadError": "Não foi possível carregar as configurações",
+	"layoutLoadError": "Não foi possível carregar o layout",
+	"shortcutsLoadError": "Não foi possível carregar os atalhos",
+	"layoutSaveError": "Não foi possível salvar o layout",
+	"shortcutSaveError": "Não foi possível salvar o atalho",
+	"shortcutDeleteError": "Não foi possível excluir o atalho",
+	"savingLayout": "Salvando layout…",
+	"loadErrorMany": "Não foi possível carregar os dados do painel"
+}

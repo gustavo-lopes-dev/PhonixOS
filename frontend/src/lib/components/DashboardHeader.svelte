@@ -47,12 +47,12 @@
 	const detail = $derived.by(() => {
 		if (status === 'live') return $t('connection.updatedEvery', { time, n: pollIntervalS });
 		if (status === 'stale') return $t('shell.staleDetail', { time, n: age });
-		return '';
+		return $t('connection.waitingFirstReading');
 	});
 	const detailShort = $derived.by(() => {
 		if (status === 'live') return $t('shell.updatedShort', { time, n: pollIntervalS });
 		if (status === 'stale') return $t('shell.staleDetailShort', { time, n: age });
-		return '';
+		return $t('connection.waitingFirstReading');
 	});
 </script>
 

@@ -1,2 +1,5 @@
 .context
 opencode.json
+# Build estático do frontend copiado no host/CI antes do `go build` (go:embed all:static)
+internal/api/static/*
+!internal/api/static/.gitkeep

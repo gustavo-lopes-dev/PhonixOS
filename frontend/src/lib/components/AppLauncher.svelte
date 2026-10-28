@@ -101,7 +101,7 @@
 		{:else if sorted.length === 0}
 			<span class="text-body text-muted">{$t('launcher.empty')}</span>
 		{:else}
-			<ul class="grid grid-cols-[repeat(auto-fill,minmax(128px,1fr))] gap-2.5 opacity-55">
+			<ul class="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2.5 opacity-55">
 				{#each sorted as shortcut (shortcut.id)}
 					<li class="surface-inner flex h-11 min-w-0 items-center gap-2 rounded-control px-2.5">
 						<Favicon src={shortcut.icon_url} title={shortcut.title} size={22} radius={6} />

@@ -5,6 +5,7 @@
 
 import type common from './locales/pt-BR/common.json';
 import type connection from './locales/pt-BR/connection.json';
+import type dashboard from './locales/pt-BR/dashboard.json';
 import type launcher from './locales/pt-BR/launcher.json';
 import type layout from './locales/pt-BR/layout.json';
 import type metrics from './locales/pt-BR/metrics.json';
@@ -14,6 +15,7 @@ import type shell from './locales/pt-BR/shell.json';
 export interface Namespaces {
 	common: typeof common;
 	connection: typeof connection;
+	dashboard: typeof dashboard;
 	launcher: typeof launcher;
 	layout: typeof layout;
 	metrics: typeof metrics;

@@ -69,6 +69,10 @@ func TestInitDBAndMigrations(t *testing.T) {
 	if err := db.QueryRow("SELECT count(*) FROM layout_cards").Scan(&cards); err != nil || cards != 4 {
 		t.Fatalf("layout seed count = %d, want 4, err = %v", cards, err)
 	}
+	var launcherWidth int
+	if err := db.QueryRow("SELECT width FROM layout_cards WHERE card_key = 'app_launcher'").Scan(&launcherWidth); err != nil || launcherWidth != 6 {
+		t.Fatalf("launcher width = %d, want 6, err = %v", launcherWidth, err)
+	}
 	var instance string
 	if err := db.QueryRow("SELECT instance_name FROM dashboard_settings WHERE id = 1").Scan(&instance); err != nil || instance != "Phonix Server" {
 		t.Fatalf("settings seed = %q, err = %v", instance, err)
@@ -201,8 +205,56 @@ func TestExistingSchemaAdoptsMigrationHistory(t *testing.T) {
 		t.Fatalf("existing settings lost: %q, %v", name, err)
 	}
 	var versions int
-	if err := db.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&versions); err != nil || versions != 1 {
+	if err := db.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&versions); err != nil || versions != 2 {
 		t.Fatalf("migration history = %d, %v", versions, err)
+	}
+}
+
+func TestLauncherFullWidthKeepsCustomLayout(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		setup   string
+		want    int
+		wantPos int
+	}{
+		{"seed", "", 6, 2},
+		{"custom", "UPDATE layout_cards SET pos_y = 0, pos_x = 0 WHERE card_key = 'app_launcher'", 4, 0},
+		{"resized", "UPDATE layout_cards SET width = 2 WHERE card_key = 'app_launcher'", 2, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, _, err := InitDB(filepath.Join(t.TempDir(), "phonix.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := db.Close(); err != nil {
+					t.Error(err)
+				}
+			}()
+			// Simula uma instalação anterior à 002: só a migration inicial registrada.
+			initial, err := migrationsFS.ReadFile("migrations/001_initial_schema.sql")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(string(initial)); err != nil {
+				t.Fatal(err)
+			}
+			if tc.setup != "" {
+				if _, err := db.Exec(tc.setup); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := RunMigrations(db); err != nil {
+				t.Fatal(err)
+			}
+			var width, posY int
+			if err := db.QueryRow("SELECT width, pos_y FROM layout_cards WHERE card_key = 'app_launcher'").Scan(&width, &posY); err != nil {
+				t.Fatal(err)
+			}
+			if width != tc.want || posY != tc.wantPos {
+				t.Fatalf("launcher width/pos_y = %d/%d, want %d/%d", width, posY, tc.want, tc.wantPos)
+			}
+		})
 	}
 }
 

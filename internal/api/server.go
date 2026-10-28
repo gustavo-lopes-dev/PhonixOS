@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"io/fs"
 	"log/slog"
 	"net/http"
 
@@ -22,9 +23,13 @@ type Routes struct {
 	GetLayout, PutLayout           fiber.Handler
 }
 
-// NewServer configura o Fiber e registra todas as rotas REST da versão 1 e o
-// canal WebSocket de telemetria conectado ao Hub injetado.
+// NewServer configura o Fiber e registra todas as rotas REST da versão 1, o
+// canal WebSocket de telemetria conectado ao Hub injetado e a SPA incorporada.
 func NewServer(routes Routes, hub *ws.Hub) *fiber.App {
+	return newServer(routes, hub, staticAssets())
+}
+
+func newServer(routes Routes, hub *ws.Hub, assets fs.FS) *fiber.App {
 	app := fiber.New(fiber.Config{ErrorHandler: serverError})
 	app.Use(recover.New())
 	app.Use(logger.New(logger.Config{Format: "${time} ${status} ${method} ${path}\n"}))
@@ -52,6 +57,8 @@ func NewServer(routes Routes, hub *ws.Hub) *fiber.App {
 	if hub != nil {
 		app.Get("/ws/telemetry", websocket.New(hub.Handle))
 	}
+	// Por último: só alcança requisições sem rota da API/WS; /api/ e /ws/ seguem para o 404/405.
+	app.Use(staticHandler(assets))
 	return app
 }
 

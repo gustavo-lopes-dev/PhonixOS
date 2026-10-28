@@ -14,13 +14,15 @@
 		shortcut: Shortcut | null;
 		/** Categorias existentes, sugeridas no `<datalist>`. */
 		categories: readonly string[];
+		/** Valor inicial de "Fixar no acesso rápido" na criação ("+ Fixar serviço" da sidebar). */
+		initialPinned?: boolean;
 		oncreate: (dto: CreateShortcutDTO) => void;
 		onupdate: (id: number, dto: UpdateShortcutDTO) => void;
 		ondelete: (id: number) => void;
 		onclose: () => void;
 	}
 
-	let { shortcut, categories, oncreate, onupdate, ondelete, onclose }: Props = $props();
+	let { shortcut, categories, initialPinned = false, oncreate, onupdate, ondelete, onclose }: Props = $props();
 
 	// Limites do contrato (contracts.md §3.4: title max 64, category max 32).
 	const TITLE_MAX = 64;
@@ -43,7 +45,7 @@
 			url: current?.url ?? '',
 			iconUrl: current?.icon_url ?? '',
 			category: current?.category ?? $t('launcher.defaultCategory'),
-			pinned: current?.is_pinned ?? false
+			pinned: current?.is_pinned ?? initialPinned
 		};
 	});
 
