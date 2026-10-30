@@ -18,6 +18,9 @@ const minBroadcastInterval = time.Second
 type Broadcaster struct {
 	hub     *Hub
 	collect func() (*collector.HardwareMetrics, error)
+	// lastErr guarda a última falha de coleta registrada; tick roda em uma
+	// única goroutine, então não há concorrência.
+	lastErr string
 }
 
 // NewBroadcaster cria o ticker adaptativo apoiado no coletor real de hardware.
@@ -109,8 +112,17 @@ func (b *Broadcaster) interval() time.Duration {
 func (b *Broadcaster) tick() {
 	snapshot, err := b.collect()
 	if err != nil {
-		slog.Debug("ws: telemetry collection failed", "error", err)
+		// Sem snapshot nenhum cliente recebe telemetria: avisa uma vez por mudança
+		// de erro em vez de silenciar ou repetir a cada tick.
+		if msg := err.Error(); msg != b.lastErr {
+			slog.Warn("ws: telemetry collection failed", "error", err)
+			b.lastErr = msg
+		}
 		return
+	}
+	if b.lastErr != "" {
+		slog.Info("ws: telemetry collection recovered")
+		b.lastErr = ""
 	}
 	b.hub.SetSnapshot(snapshot)
 	now := time.Now()

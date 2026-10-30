@@ -2,22 +2,27 @@ package collector
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"net"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gustavo-lopes-dev/PhonixOS/internal/network"
 )
 
 const (
 	procNetDevPath     = "/proc/net/dev"
 	procNetRoutePath   = "/proc/net/route"
 	procNetFibTriePath = "/proc/net/fib_trie"
+	sysClassNetPath    = "/sys/class/net"
 
 	// loopbackIface é desconsiderada na telemetria de throughput.
 	loopbackIface = "lo"
@@ -35,6 +40,7 @@ type networkSource struct {
 	devPath     string
 	routePath   string
 	fibTriePath string
+	sysNetPath  string
 }
 
 // networkCollector mantém o estado entre coletas consecutivas para o cálculo
@@ -56,6 +62,7 @@ var defaultNetworkCollector = &networkCollector{
 		devPath:     procNetDevPath,
 		routePath:   procNetRoutePath,
 		fibTriePath: procNetFibTriePath,
+		sysNetPath:  sysClassNetPath,
 	},
 	now: time.Now,
 }
@@ -77,7 +84,9 @@ func (c *networkCollector) collect() ([]NetworkMetrics, error) {
 
 	read := c.readDev
 	if read == nil {
-		read = readNetDev
+		read = func(devPath string) (map[string]netDevCounters, error) {
+			return readNetCounters(devPath, c.source.sysNetPath, interfaceNames)
+		}
 	}
 	counters, err := read(c.source.devPath)
 	if err != nil {
@@ -132,6 +141,82 @@ func perSecondRate(prev, curr uint64, elapsed float64) uint64 {
 		return 0
 	}
 	return uint64(math.Round(float64(curr-prev) / elapsed))
+}
+
+// readNetCounters percorre a cadeia de contadores de bytes: /proc/net/dev e,
+// se negado, os arquivos statistics/{rx,tx}_bytes de cada interface no sysfs.
+// Sem nenhuma fonte (Android 10+ sem root nega ambas), devolve erro e o
+// snapshot segue com a lista de rede vazia.
+func readNetCounters(devPath, sysNetPath string, names func() ([]string, error)) (map[string]netDevCounters, error) {
+	counters, procErr := readNetDev(devPath)
+	if procErr == nil {
+		reportSource("network_counters", "proc_net_dev")
+		return counters, nil
+	}
+	slog.Debug("collector: network counters source failed, falling back", "source", "proc_net_dev", "error", procErr)
+
+	counters, sysErr := readSysfsNetCounters(sysNetPath, names)
+	if sysErr == nil {
+		reportSource("network_counters", "sysfs")
+		return counters, nil
+	}
+	slog.Debug("collector: network counters source failed", "source", "sysfs", "error", sysErr)
+	reportSource("network_counters", "unavailable")
+	return nil, errors.Join(procErr, sysErr)
+}
+
+// readSysfsNetCounters lê os contadores em <sysNetPath>/<iface>/statistics. Os
+// nomes vêm da listagem do diretório ou, se ela for negada, das interfaces
+// com IPv4 conhecidas pelo kernel.
+func readSysfsNetCounters(sysNetPath string, names func() ([]string, error)) (map[string]netDevCounters, error) {
+	var ifaces []string
+	entries, err := os.ReadDir(sysNetPath)
+	if err == nil {
+		for _, entry := range entries {
+			ifaces = append(ifaces, entry.Name())
+		}
+	} else if ifaces, err = names(); err != nil {
+		return nil, fmt.Errorf("collector: list interfaces: %w", err)
+	}
+
+	counters := make(map[string]netDevCounters)
+	var firstErr error
+	for _, name := range ifaces {
+		base := filepath.Join(sysNetPath, name, "statistics")
+		recv, recvErr := readUintFile(filepath.Join(base, "rx_bytes"))
+		sent, sentErr := readUintFile(filepath.Join(base, "tx_bytes"))
+		if err := errors.Join(recvErr, sentErr); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		counters[name] = netDevCounters{recvBytes: recv, sentBytes: sent}
+	}
+	if len(counters) == 0 {
+		if firstErr == nil {
+			firstErr = fmt.Errorf("collector: no interface statistics in %q", sysNetPath)
+		}
+		return nil, firstErr
+	}
+	return counters, nil
+}
+
+// interfaceNames lista as interfaces com IPv4 pela cadeia netlink -> ioctl.
+func interfaceNames() ([]string, error) {
+	entries, err := network.ListIPv4()
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool)
+	names := []string{}
+	for _, entry := range entries {
+		if !seen[entry.Name] {
+			seen[entry.Name] = true
+			names = append(names, entry.Name)
+		}
+	}
+	return names, nil
 }
 
 // readNetDev faz o parse de /proc/net/dev. Linhas malformadas ou de cabeçalho
@@ -354,31 +439,18 @@ func littleEndianIPv4(value uint32) net.IP {
 	return net.IPv4(byte(value), byte(value>>8), byte(value>>16), byte(value>>24)).To4()
 }
 
-// kernelInterfaceIPv4 resolve o IPv4 de uma interface via netlink (stdlib),
-// sem privilégios. É o fallback para hosts sem /proc/net/fib_trie exposto.
+// kernelInterfaceIPv4 resolve o IPv4 de uma interface ativa pela cadeia
+// netlink -> ioctl SIOCGIFCONF, sem privilégios. É o fallback para hosts sem
+// /proc/net/fib_trie ou /proc/net/route expostos.
 func kernelInterfaceIPv4(name string) string {
-	iface, err := net.InterfaceByName(name)
+	entries, err := network.ListIPv4()
 	if err != nil {
 		slog.Debug("collector: interface lookup failed", "interface", name, "error", err)
 		return ""
 	}
-	if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-		return ""
-	}
-
-	addrs, err := iface.Addrs()
-	if err != nil {
-		slog.Debug("collector: interface address lookup failed", "interface", name, "error", err)
-		return ""
-	}
-
-	for _, addr := range addrs {
-		ipNet, ok := addr.(*net.IPNet)
-		if !ok {
-			continue
-		}
-		if ipv4 := ipNet.IP.To4(); ipv4 != nil {
-			return ipv4.String()
+	for _, entry := range entries {
+		if entry.Name == name && !entry.Loopback {
+			return entry.IP.String()
 		}
 	}
 	return ""

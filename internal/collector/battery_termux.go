@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
 )
 
@@ -33,7 +32,11 @@ func (p termuxBatteryProvider) GetMetrics() (*BatteryMetrics, error) {
 	run := p.command
 	if run == nil {
 		run = func(ctx context.Context) ([]byte, error) {
-			return exec.CommandContext(ctx, "termux-battery-status").Output()
+			cmd, err := commandContext(ctx, "termux-battery-status")
+			if err != nil {
+				return nil, err
+			}
+			return cmd.Output()
 		}
 	}
 

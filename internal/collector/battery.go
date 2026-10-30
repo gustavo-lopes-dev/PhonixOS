@@ -44,6 +44,7 @@ func collectBatteryWith(providers []batteryProvider) *BatteryMetrics {
 			continue
 		}
 		if metrics != nil {
+			reportSource("battery", string(metrics.Source))
 			return metrics
 		}
 		slog.Debug("collector: battery provider returned nil metrics, falling back")

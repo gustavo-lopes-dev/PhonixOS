@@ -2,7 +2,9 @@ package collector
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"sort"
 	"strconv"
@@ -31,37 +33,105 @@ type cpuStatSample struct {
 	cores     map[int]cpuTimes
 }
 
+// cpuUsageSource é um nível da cadeia de uso de CPU: devolve o uso agregado e
+// por núcleo calculado entre duas amostras (cada fonte define sua janela).
+type cpuUsageSource struct {
+	name   string
+	sample func(frequency func(int) float64) (float64, []CPUCoreMetrics, error)
+}
+
+// loadAvgSource é um nível da cadeia de load average.
+type loadAvgSource struct {
+	name string
+	read func() (float64, float64, float64, error)
+}
+
+// Ordem de fallback do uso: /proc/stat e, quando o SELinux do Android 8+ nega
+// esse arquivo a apps comuns, o tempo ocioso por núcleo exposto em cpuidle.
+var defaultCPUUsageSources = []cpuUsageSource{
+	{name: "proc_stat", sample: func(frequency func(int) float64) (float64, []CPUCoreMetrics, error) {
+		return procStatUsage(procStatPath, frequency)
+	}},
+	{name: "cpuidle", sample: func(frequency func(int) float64) (float64, []CPUCoreMetrics, error) {
+		return defaultCPUIdleSampler.usage(frequency)
+	}},
+}
+
+// Ordem de fallback do load average: /proc/loadavg e a syscall sysinfo(2), que
+// não depende de arquivos de /proc.
+var defaultLoadAvgSources = []loadAvgSource{
+	{name: "proc_loadavg", read: func() (float64, float64, float64, error) { return readLoadAvg(procLoadavgPath) }},
+	{name: "sysinfo", read: sysinfoLoadAvg},
+}
+
 // CollectCPU lê o uso total e por núcleo, o load average e a frequência de cada
-// núcleo lógico. Falhas na frequência de um núcleo individual não abortam a
-// coleta: retornam 0 MHz para aquele núcleo.
+// núcleo lógico, percorrendo as cadeias de fontes até a primeira que funcionar.
+// Falhas na frequência de um núcleo individual não abortam a coleta: retornam
+// 0 MHz para aquele núcleo.
 func CollectCPU() (*CPUMetrics, error) {
-	first, err := readCPUStat(procStatPath)
-	if err != nil {
-		return nil, err
+	return collectCPUWith(defaultCPUUsageSources, defaultLoadAvgSources, coreFrequencyMHz)
+}
+
+func collectCPUWith(usageSources []cpuUsageSource, loadSources []loadAvgSource, frequency func(int) float64) (*CPUMetrics, error) {
+	var usage float64
+	var cores []CPUCoreMetrics
+	var usageErrs []error
+	for _, source := range usageSources {
+		var err error
+		usage, cores, err = source.sample(frequency)
+		if err == nil {
+			reportSource("cpu_usage", source.name)
+			usageErrs = nil
+			break
+		}
+		slog.Debug("collector: cpu usage source failed, falling back", "source", source.name, "error", err)
+		usageErrs = append(usageErrs, fmt.Errorf("%s: %w", source.name, err))
+	}
+	if len(usageErrs) > 0 {
+		return nil, errors.Join(usageErrs...)
 	}
 
-	time.Sleep(cpuSampleInterval)
-
-	second, err := readCPUStat(procStatPath)
-	if err != nil {
-		return nil, err
+	var load1, load5, load15 float64
+	var loadErrs []error
+	for _, source := range loadSources {
+		var err error
+		load1, load5, load15, err = source.read()
+		if err == nil {
+			reportSource("load_avg", source.name)
+			loadErrs = nil
+			break
+		}
+		slog.Debug("collector: load average source failed, falling back", "source", source.name, "error", err)
+		loadErrs = append(loadErrs, fmt.Errorf("%s: %w", source.name, err))
 	}
-
-	load1, load5, load15, err := readLoadAvg(procLoadavgPath)
-	if err != nil {
-		return nil, err
+	if len(loadErrs) > 0 {
+		return nil, errors.Join(loadErrs...)
 	}
-
-	cores := collectCPUCores(first, second, coreFrequencyMHz)
 
 	return &CPUMetrics{
-		UsagePercent: usagePercent(first.aggregate, second.aggregate),
+		UsagePercent: usage,
 		LoadAvg1Min:  load1,
 		LoadAvg5Min:  load5,
 		LoadAvg15Min: load15,
 		CoreCount:    len(cores),
 		Cores:        cores,
 	}, nil
+}
+
+// procStatUsage calcula o uso pela variação dos contadores de /proc/stat.
+func procStatUsage(path string, frequency func(int) float64) (float64, []CPUCoreMetrics, error) {
+	first, err := readCPUStat(path)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	time.Sleep(cpuSampleInterval)
+
+	second, err := readCPUStat(path)
+	if err != nil {
+		return 0, nil, err
+	}
+	return usagePercent(first.aggregate, second.aggregate), collectCPUCores(first, second, frequency), nil
 }
 
 // collectCPUCores emite apenas núcleos presentes na amostra atual. Um núcleo

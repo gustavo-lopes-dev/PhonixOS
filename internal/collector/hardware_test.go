@@ -2,16 +2,11 @@ package collector
 
 import (
 	"errors"
-	"os"
 	"testing"
 	"time"
 )
 
 func TestCollectHardwareSnapshot(t *testing.T) {
-	if _, err := os.Stat(procStatPath); err != nil {
-		t.Skipf("skipping: %q unavailable: %v", procStatPath, err)
-	}
-
 	snapshot, err := CollectHardware()
 	if err != nil {
 		t.Fatalf("CollectHardware: %v", err)
@@ -35,10 +30,6 @@ func TestCollectHardwareSnapshot(t *testing.T) {
 }
 
 func TestCollectHardwareWithUnavailableNetwork(t *testing.T) {
-	if _, err := os.Stat(procStatPath); err != nil {
-		t.Skipf("skipping: %q unavailable: %v", procStatPath, err)
-	}
-
 	snapshot, err := collectHardwareWithNetwork(func() ([]NetworkMetrics, error) {
 		return nil, errors.New("/proc/net/dev unavailable")
 	})

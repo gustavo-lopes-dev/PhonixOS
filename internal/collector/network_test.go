@@ -120,6 +120,8 @@ func TestNetworkCollectorRates(t *testing.T) {
 	collector := &networkCollector{
 		source: networkSource{devPath: devPath, routePath: routePath, fibTriePath: fibPath},
 		now:    func() time.Time { return current },
+		// Isola o teste das interfaces reais do host (ex.: um wlan0 de verdade).
+		lookupIPv4: func(string) string { return "" },
 	}
 
 	first, err := collector.collect()

@@ -3,7 +3,6 @@ package collector
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 )
@@ -24,7 +23,11 @@ func (p dumpsysBatteryProvider) GetMetrics() (*BatteryMetrics, error) {
 	run := p.command
 	if run == nil {
 		run = func(ctx context.Context) ([]byte, error) {
-			return exec.CommandContext(ctx, "dumpsys", "battery").Output()
+			cmd, err := commandContext(ctx, "dumpsys", "battery")
+			if err != nil {
+				return nil, err
+			}
+			return cmd.Output()
 		}
 	}
 
