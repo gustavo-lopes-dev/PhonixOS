@@ -31,6 +31,7 @@
 	--ok-soft: rgba(79, 209, 139, 0.1);
 	--ok-border: rgba(79, 209, 139, 0.35);
 	--warn: #f2b84b;
+	--danger: #f87171;
 	--accent-soft: rgba(91, 156, 245, 0.12);
 	--accent-border: rgba(91, 156, 245, 0.35);
 	--warn-soft: rgba(242, 184, 75, 0.1);
@@ -70,6 +71,7 @@
 	--ok-soft: rgba(21, 128, 61, 0.07);
 	--ok-border: rgba(21, 128, 61, 0.3);
 	--warn: #a35f00;
+	--danger: #b91c1c;
 	--accent-soft: rgba(31, 99, 209, 0.08);
 	--accent-border: rgba(31, 99, 209, 0.3);
 	--warn-soft: rgba(163, 95, 0, 0.07);
@@ -154,6 +156,26 @@
 @theme static {
 	--color-*: initial;
 
+	/* Ponto "Ao vivo": pisca e emite um anel; parado sob prefers-reduced-motion (regra global). */
+	--animate-live-pulse: live-pulse 1.6s var(--ease-out) infinite;
+
+	@keyframes live-pulse {
+		0% {
+			opacity: 1;
+			box-shadow: 0 0 0 0 var(--ok-border);
+		}
+		50% {
+			opacity: 0.35;
+		}
+		70% {
+			box-shadow: 0 0 0 5px transparent;
+		}
+		100% {
+			opacity: 1;
+			box-shadow: 0 0 0 0 transparent;
+		}
+	}
+
 	--font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
 	--font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
@@ -229,6 +251,7 @@
 	--color-ok-soft: var(--ok-soft);
 	--color-ok-border: var(--ok-border);
 	--color-warn: var(--warn);
+	--color-danger: var(--danger);
 	--color-accent-soft: var(--accent-soft);
 	--color-accent-border: var(--accent-border);
 	--color-warn-soft: var(--warn-soft);

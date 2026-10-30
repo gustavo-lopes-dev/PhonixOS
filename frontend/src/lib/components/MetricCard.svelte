@@ -1,7 +1,8 @@
 <script lang="ts">
 	// Cards de CPU, RAM e Bateria/Temperatura (handoff §A itens 1–3, §B, §Interactions).
 	// Estado de dado vem de `connectionStore`/`metricsStore`: `connecting` → skeleton; `live` → selo
-	// "Ao vivo"; `stale` → valores a .55, medidores em `--muted` e selo "Antigo · HH:MM:SS".
+	// "Ao vivo" com ponto verde pulsando; `stale` → valores a .55, medidores em `--muted` e selo
+	// "Antigo · HH:MM:SS" com ponto vermelho fixo.
 	// Bateria `mock` e campos fora do contrato (temperatura da CPU) aparecem como "N/D", nunca 0.
 	// `summary` = resumo de uma linha do modo de edição do layout (sem a casca do card).
 	import Card from '#lib/components/Card.svelte';
@@ -146,7 +147,7 @@
 		{/if}
 	</div>
 {:else}
-	<Card title={$t(titleKey[kind])} {subtitle} {badge} badgeTone={stale ? 'warn' : 'muted'}>
+	<Card title={$t(titleKey[kind])} {subtitle} {badge} badgeTone={stale ? 'warn' : 'muted'} badgeDot={stale ? 'offline' : 'live'}>
 		{#if waiting || metrics === null}
 			<div class="flex items-center gap-[22px]" aria-hidden="true">
 				<div class="size-24 flex-none rounded-full border-[10px] border-track lg:size-28"></div>

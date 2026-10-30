@@ -10,6 +10,8 @@
 		/** Texto do selo à direita ("Ao vivo" / "Antigo · 14:22:05"); omitido = sem selo. */
 		badge?: string;
 		badgeTone?: 'muted' | 'warn';
+		/** Ponto à esquerda do selo: `live` verde pulsando, `offline` vermelho fixo. Reforço visual; o texto do selo carrega o estado. */
+		badgeDot?: 'live' | 'offline';
 		/** `min-height` de 244 px no desktop (cards de métrica). */
 		fixedHeight?: boolean;
 		/** Substitui o cabeçalho padrão; recebe o id do título para `aria-labelledby`. */
@@ -17,7 +19,7 @@
 		children: Snippet;
 	}
 
-	let { title, subtitle, badge, badgeTone = 'muted', fixedHeight = true, header, children }: Props = $props();
+	let { title, subtitle, badge, badgeTone = 'muted', badgeDot, fixedHeight = true, header, children }: Props = $props();
 
 	const titleId = $props.id();
 </script>
@@ -42,10 +44,19 @@
 			{#if badge}
 				<span
 					class={[
-						'flex-none rounded-badge border px-2 py-[5px] text-meta leading-none font-medium whitespace-nowrap',
+						'inline-flex flex-none items-center gap-1.5 rounded-badge border px-2 py-[5px] text-meta leading-none font-medium whitespace-nowrap',
 						badgeTone === 'warn' ? 'border-warn-border text-warn' : 'border-inner-border text-muted'
 					]}
 				>
+					{#if badgeDot}
+						<span
+							aria-hidden="true"
+							class={[
+								'size-[7px] flex-none rounded-full',
+								badgeDot === 'live' ? 'animate-live-pulse bg-ok' : 'bg-danger'
+							]}
+						></span>
+					{/if}
 					{badge}
 				</span>
 			{/if}
