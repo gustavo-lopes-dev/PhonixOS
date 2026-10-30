@@ -40,8 +40,9 @@ export interface BatteryMetrics {
 export interface NetworkMetrics {
 	interface_name: string;
 	ipv4_address: string;
-	bytes_sent_sec: number;
-	bytes_recv_sec: number;
+	/** `null` sem amostra anterior ou sem fonte de contadores no servidor (exibido como N/D). */
+	bytes_sent_sec: number | null;
+	bytes_recv_sec: number | null;
 }
 
 export interface HardwareMetrics {

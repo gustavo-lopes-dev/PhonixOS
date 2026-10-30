@@ -2,8 +2,9 @@
 	// Linha de rede (handoff §A Cabeçalho, §B rodapé, §Interactions "Rede"):
 	// `Rede · {interface} · {ipv4}[ · {hostname}]  ↓ Download {rx}  ↑ Upload {tx}`.
 	// `header` = linha única Mono 12.5 do cabeçalho desktop; `footer` = duas linhas Mono 12 do
-	// rodapé mobile. Taxas como "—" em `connecting` e até a segunda amostra; sem interface com
-	// IPv4 → "Rede · —". Valores antigos (`stale`) a .55.
+	// rodapé mobile. Taxas como "—" em `connecting`, até a segunda amostra e quando o servidor
+	// envia `null` (sem fonte de contadores); sem interface com IPv4 → "Rede · —". Valores
+	// antigos (`stale`) a .55.
 	import { browser } from '$app/env';
 	import { t } from '#lib/i18n/index.ts';
 	import { formatters } from '#lib/i18n/format.ts';
@@ -27,8 +28,8 @@
 		return host;
 	});
 	const ratesReady = $derived(iface !== null && $rateBaselineReady && $connectionStore.state !== 'connecting');
-	const download = $derived(ratesReady && iface ? $formatters.rate(iface.bytes_recv_sec) : null);
-	const upload = $derived(ratesReady && iface ? $formatters.rate(iface.bytes_sent_sec) : null);
+	const download = $derived(ratesReady && iface?.bytes_recv_sec != null ? $formatters.rate(iface.bytes_recv_sec) : null);
+	const upload = $derived(ratesReady && iface?.bytes_sent_sec != null ? $formatters.rate(iface.bytes_sent_sec) : null);
 	const stale = $derived($connectionStore.state === 'stale');
 </script>
 

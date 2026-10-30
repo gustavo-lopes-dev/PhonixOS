@@ -40,7 +40,8 @@ Download de um asset: `${PHONIX_RELEASE_BASE_URL}/<asset>`, isto é,
 
 ## Pipeline no host/CI (ordem obrigatória)
 
-Pré-requisitos: Go conforme `go.mod` (1.23), Node 22 com npm, `git`, `curl`, `sha256sum` e
+Pré-requisitos: Go conforme `go.mod` (1.23), Node 22 com npm, JDK 11+ (`javac`), Android SDK
+com build-tools (`d8`) e uma plataforma `android-*` (`ANDROID_HOME`), `git`, `curl`, `sha256sum` e
 `gh` autenticado apenas para publicar. Execute a partir da raiz de um checkout limpo no tag:
 
 ```sh
@@ -59,6 +60,11 @@ find internal/api/static -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
 cp -R frontend/build/. internal/api/static/
 test -f internal/api/static/index.html && test -d internal/api/static/_app/immutable
 
+# 3b. Helper Android (dex) para contadores de rede sem root (go:embed lê
+#     internal/androidhelper/dex/ no build); requer JDK e Android SDK (d8, android.jar)
+scripts/build-android-helper.sh
+test -f internal/androidhelper/dex/phonix-helper.dex
+
 # 4. Somente agora compilar o backend (go:embed lê internal/api/static/ no build)
 go test ./...
 mkdir -p dist
@@ -71,7 +77,11 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
 (cd dist && sha256sum "${PHONIX_BIN_ARM64}" "${PHONIX_BIN_ARM32}" > SHA256SUMS)
 ```
 
-Inverter os passos 3 e 4 gera um binário sem a SPA (só `.gitkeep` incorporado). Em checkout montado
+Inverter os passos 3 e 4 gera um binário sem a SPA (só `.gitkeep` incorporado). Sem o passo 3b o
+binário funciona, mas no Android sem root as taxas de rede ficam indisponíveis (N/D): o helper
+`internal/androidhelper/PhonixHelper.java` lê o serviço `netstats` via `/system/bin/app_process`
+quando `/proc/net/dev`, `/sys/class/net` e netlink são negados ao app, e só roda enquanto há
+coletas (encerrado após 20 s sem uso; ~50 MB de RAM enquanto ativo). Em checkout montado
 num contêiner com outro dono, acrescente `-buildvcs=false` ao `go build`.
 
 ## Conferência de cada binário

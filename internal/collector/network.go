@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gustavo-lopes-dev/PhonixOS/internal/androidhelper"
 	"github.com/gustavo-lopes-dev/PhonixOS/internal/network"
 )
 
@@ -50,6 +51,7 @@ type networkCollector struct {
 	now        func() time.Time
 	lookupIPv4 func(string) string
 	readDev    func(string) (map[string]netDevCounters, error)
+	listIPv4   func() ([]network.InterfaceIPv4, error)
 
 	mu     sync.Mutex
 	prev   map[string]netDevCounters
@@ -69,7 +71,8 @@ var defaultNetworkCollector = &networkCollector{
 
 // CollectNetwork devolve as taxas de rede por interface ativa, calculadas a
 // partir do delta de bytes entre coletas consecutivas desta mesma instância.
-// A primeira chamada reporta taxas zeradas por não haver amostra anterior.
+// Taxas são nil sem amostra anterior ou sem nenhuma fonte de contadores; neste
+// caso as interfaces e seus IPv4 continuam sendo reportados.
 func CollectNetwork() ([]NetworkMetrics, error) {
 	return defaultNetworkCollector.collect()
 }
@@ -85,12 +88,14 @@ func (c *networkCollector) collect() ([]NetworkMetrics, error) {
 	read := c.readDev
 	if read == nil {
 		read = func(devPath string) (map[string]netDevCounters, error) {
-			return readNetCounters(devPath, c.source.sysNetPath, interfaceNames)
+			return readNetCounters(devPath, c.source.sysNetPath, interfaceNames, androidNetCounters)
 		}
 	}
 	counters, err := read(c.source.devPath)
 	if err != nil {
-		return nil, err
+		c.prev = nil
+		c.prevAt = time.Time{}
+		return c.interfacesWithoutRates(err)
 	}
 
 	lookup := c.lookupIPv4
@@ -111,10 +116,11 @@ func (c *networkCollector) collect() ([]NetworkMetrics, error) {
 			continue
 		}
 
-		var sentRate, recvRate uint64
+		var sentRate, recvRate *uint64
 		if prev, found := c.prev[name]; found && elapsed > 0 {
-			sentRate = perSecondRate(prev.sentBytes, current.sentBytes, elapsed)
-			recvRate = perSecondRate(prev.recvBytes, current.recvBytes, elapsed)
+			sent := perSecondRate(prev.sentBytes, current.sentBytes, elapsed)
+			recv := perSecondRate(prev.recvBytes, current.recvBytes, elapsed)
+			sentRate, recvRate = &sent, &recv
 		}
 
 		metrics = append(metrics, NetworkMetrics{
@@ -134,6 +140,32 @@ func (c *networkCollector) collect() ([]NetworkMetrics, error) {
 	return metrics, nil
 }
 
+// interfacesWithoutRates é o último nível: sem contadores de bytes, reporta as
+// interfaces ativas com IPv4 (cadeia netlink -> ioctl) e taxas nil.
+func (c *networkCollector) interfacesWithoutRates(cause error) ([]NetworkMetrics, error) {
+	list := c.listIPv4
+	if list == nil {
+		list = network.ListIPv4
+	}
+	entries, err := list()
+	if err != nil {
+		return nil, errors.Join(cause, err)
+	}
+	seen := make(map[string]bool)
+	metrics := []NetworkMetrics{}
+	for _, entry := range entries {
+		if entry.Loopback || entry.Name == loopbackIface || seen[entry.Name] {
+			continue
+		}
+		seen[entry.Name] = true
+		metrics = append(metrics, NetworkMetrics{InterfaceName: entry.Name, IPv4Address: entry.IP.String()})
+	}
+	sort.Slice(metrics, func(i, j int) bool {
+		return metrics[i].InterfaceName < metrics[j].InterfaceName
+	})
+	return metrics, nil
+}
+
 // perSecondRate calcula a taxa por segundo a partir dos contadores acumulados,
 // tratando reset/wraparound do contador (curr < prev) como taxa zero.
 func perSecondRate(prev, curr uint64, elapsed float64) uint64 {
@@ -143,11 +175,11 @@ func perSecondRate(prev, curr uint64, elapsed float64) uint64 {
 	return uint64(math.Round(float64(curr-prev) / elapsed))
 }
 
-// readNetCounters percorre a cadeia de contadores de bytes: /proc/net/dev e,
-// se negado, os arquivos statistics/{rx,tx}_bytes de cada interface no sysfs.
-// Sem nenhuma fonte (Android 10+ sem root nega ambas), devolve erro e o
-// snapshot segue com a lista de rede vazia.
-func readNetCounters(devPath, sysNetPath string, names func() ([]string, error)) (map[string]netDevCounters, error) {
+// readNetCounters percorre a cadeia de contadores de bytes: /proc/net/dev, os
+// arquivos statistics/{rx,tx}_bytes de cada interface no sysfs e, quando o
+// Android nega ambos ao app, o serviço netstats via helper Java. Sem nenhuma
+// fonte devolve erro e o coletor reporta as interfaces sem taxas.
+func readNetCounters(devPath, sysNetPath string, names func() ([]string, error), helper func([]string) (map[string]netDevCounters, string, error)) (map[string]netDevCounters, error) {
 	counters, procErr := readNetDev(devPath)
 	if procErr == nil {
 		reportSource("network_counters", "proc_net_dev")
@@ -160,9 +192,56 @@ func readNetCounters(devPath, sysNetPath string, names func() ([]string, error))
 		reportSource("network_counters", "sysfs")
 		return counters, nil
 	}
-	slog.Debug("collector: network counters source failed", "source", "sysfs", "error", sysErr)
+	slog.Debug("collector: network counters source failed, falling back", "source", "sysfs", "error", sysErr)
+
+	ifaces, helperErr := names()
+	var helperSource string
+	if helperErr == nil {
+		counters, helperSource, helperErr = helper(ifaces)
+	}
+	if helperErr == nil && len(counters) > 0 {
+		reportSource("network_counters", "android_helper:"+helperSource)
+		return counters, nil
+	}
+	if helperErr == nil {
+		helperErr = errors.New("collector: netstats returned no interface counters")
+	}
+	slog.Debug("collector: network counters source failed", "source", "netstats", "error", helperErr)
 	reportSource("network_counters", "unavailable")
-	return nil, errors.Join(procErr, sysErr)
+	return nil, errors.Join(procErr, sysErr, helperErr)
+}
+
+// androidNetCounters consulta o helper Java (netstats/TrafficStats), que só roda
+// enquanto houver coletas (androidhelper encerra o processo ocioso).
+func androidNetCounters(names []string) (map[string]netDevCounters, string, error) {
+	result, err := androidhelper.Default.InterfaceCounters(names)
+	if err != nil {
+		return nil, "", err
+	}
+	return countersFromHelper(names, result)
+}
+
+// countersFromHelper prefere os contadores por interface. Na falta deles, o total
+// do aparelho só é atribuído quando existe exatamente uma interface ativa: com
+// mais de uma (ex.: Wi-Fi e dados móveis) não há como separar o tráfego.
+func countersFromHelper(names []string, result *androidhelper.Result) (map[string]netDevCounters, string, error) {
+	if len(result.Ifaces) > 0 {
+		counters := make(map[string]netDevCounters, len(result.Ifaces))
+		for name, value := range result.Ifaces {
+			counters[name] = netDevCounters{recvBytes: value.RecvBytes, sentBytes: value.SentBytes}
+		}
+		return counters, result.IfaceSource, nil
+	}
+	if result.Total != nil && len(names) == 1 {
+		counters := map[string]netDevCounters{
+			names[0]: {recvBytes: result.Total.RecvBytes, sentBytes: result.Total.SentBytes},
+		}
+		return counters, result.TotalSource + "_single_interface", nil
+	}
+	if result.Total != nil {
+		return nil, "", fmt.Errorf("collector: only device-wide counters available for %d interfaces", len(names))
+	}
+	return nil, "", errors.New("collector: android helper returned no counters")
 }
 
 // readSysfsNetCounters lê os contadores em <sysNetPath>/<iface>/statistics. Os
@@ -202,7 +281,8 @@ func readSysfsNetCounters(sysNetPath string, names func() ([]string, error)) (ma
 	return counters, nil
 }
 
-// interfaceNames lista as interfaces com IPv4 pela cadeia netlink -> ioctl.
+// interfaceNames lista as interfaces não loopback com IPv4 pela cadeia
+// netlink -> ioctl.
 func interfaceNames() ([]string, error) {
 	entries, err := network.ListIPv4()
 	if err != nil {
@@ -211,7 +291,7 @@ func interfaceNames() ([]string, error) {
 	seen := make(map[string]bool)
 	names := []string{}
 	for _, entry := range entries {
-		if !seen[entry.Name] {
+		if !entry.Loopback && !seen[entry.Name] {
 			seen[entry.Name] = true
 			names = append(names, entry.Name)
 		}

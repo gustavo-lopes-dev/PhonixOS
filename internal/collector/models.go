@@ -50,12 +50,13 @@ type MemoryMetrics struct {
 	BuffersBytes   uint64  `json:"buffers_bytes"`
 }
 
-// NetworkMetrics detalha a velocidade e o IPv4 de cada interface ativa.
+// NetworkMetrics detalha a velocidade e o IPv4 de cada interface ativa. As
+// taxas são nil (JSON null) sem amostra anterior ou sem fonte de contadores.
 type NetworkMetrics struct {
-	InterfaceName string `json:"interface_name"`
-	IPv4Address   string `json:"ipv4_address"`
-	BytesSentSec  uint64 `json:"bytes_sent_sec"`
-	BytesRecvSec  uint64 `json:"bytes_recv_sec"`
+	InterfaceName string  `json:"interface_name"`
+	IPv4Address   string  `json:"ipv4_address"`
+	BytesSentSec  *uint64 `json:"bytes_sent_sec"`
+	BytesRecvSec  *uint64 `json:"bytes_recv_sec"`
 }
 
 // HardwareMetrics consolida o snapshot completo de telemetria de hardware.

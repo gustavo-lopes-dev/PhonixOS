@@ -3,3 +3,6 @@ opencode.json
 # Build estático do frontend copiado no host/CI antes do `go build` (go:embed all:static)
 internal/api/static/*
 !internal/api/static/.gitkeep
+# Helper Android (dex) gerado no host/CI antes do `go build` (go:embed all:dex)
+internal/androidhelper/dex/*
+!internal/androidhelper/dex/.gitkeep

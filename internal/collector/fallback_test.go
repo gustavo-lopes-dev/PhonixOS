@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gustavo-lopes-dev/PhonixOS/internal/androidhelper"
+	"github.com/gustavo-lopes-dev/PhonixOS/internal/network"
 )
 
 func writeTestFile(t *testing.T, path, content string) {
@@ -198,7 +202,11 @@ func TestReadNetCountersFallsBackToSysfs(t *testing.T) {
 		return nil, nil
 	}
 
-	counters, err := readNetCounters(filepath.Join(sys, "missing"), sys, noNames)
+	noHelper := func([]string) (map[string]netDevCounters, string, error) {
+		t.Fatal("helper must not run when sysfs works")
+		return nil, "", nil
+	}
+	counters, err := readNetCounters(filepath.Join(sys, "missing"), sys, noNames, noHelper)
 	if err != nil {
 		t.Fatalf("readNetCounters: %v", err)
 	}
@@ -227,7 +235,11 @@ func TestReadSysfsNetCountersUsesInterfaceNamesWhenDirectoryIsDenied(t *testing.
 func TestReadNetCountersWithoutAnySource(t *testing.T) {
 	dir := t.TempDir()
 	names := func() ([]string, error) { return nil, errors.New("netlink and ioctl denied") }
-	_, err := readNetCounters(filepath.Join(dir, "dev"), filepath.Join(dir, "net"), names)
+	helper := func([]string) (map[string]netDevCounters, string, error) {
+		t.Fatal("helper needs interface names")
+		return nil, "", nil
+	}
+	_, err := readNetCounters(filepath.Join(dir, "dev"), filepath.Join(dir, "net"), names, helper)
 	if err == nil || !strings.Contains(err.Error(), "netlink and ioctl denied") {
 		t.Fatalf("expected error from every source, got %v", err)
 	}
@@ -276,5 +288,78 @@ func TestCommandContextKillsHungDescendants(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
 		t.Fatalf("Output blocked for %v after cancellation", elapsed)
+	}
+}
+
+func TestReadNetCountersFallsBackToNetstatsHelper(t *testing.T) {
+	dir := t.TempDir()
+	names := func() ([]string, error) { return []string{"wlan0"}, nil }
+	var asked []string
+	helper := func(ifaces []string) (map[string]netDevCounters, string, error) {
+		asked = ifaces
+		return map[string]netDevCounters{"wlan0": {recvBytes: 10, sentBytes: 20}}, "netstats_iface", nil
+	}
+	counters, err := readNetCounters(filepath.Join(dir, "dev"), filepath.Join(dir, "net"), names, helper)
+	if err != nil || counters["wlan0"].sentBytes != 20 || strings.Join(asked, ",") != "wlan0" {
+		t.Fatalf("unexpected helper fallback %+v, %v (asked %v)", counters, err, asked)
+	}
+
+	empty := func([]string) (map[string]netDevCounters, string, error) { return map[string]netDevCounters{}, "", nil }
+	if _, err := readNetCounters(filepath.Join(dir, "dev"), filepath.Join(dir, "net"), names, empty); err == nil {
+		t.Fatal("expected error when the helper returns no counters")
+	}
+}
+
+func TestNetworkCollectorReportsInterfacesWithoutCounters(t *testing.T) {
+	collector := &networkCollector{
+		now:     time.Now,
+		readDev: func(string) (map[string]netDevCounters, error) { return nil, errors.New("all counter sources denied") },
+		listIPv4: func() ([]network.InterfaceIPv4, error) {
+			return []network.InterfaceIPv4{
+				{Name: "lo", IP: net.IPv4(127, 0, 0, 1), Loopback: true},
+				{Name: "wlan0", IP: net.IPv4(192, 168, 100, 72)},
+				{Name: "wlan0", IP: net.IPv4(10, 0, 0, 2)},
+				{Name: "rmnet0", IP: net.IPv4(10, 1, 2, 3)},
+			}, nil
+		},
+	}
+	metrics, err := collector.collect()
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	if len(metrics) != 2 || metrics[0].InterfaceName != "rmnet0" || metrics[1].InterfaceName != "wlan0" ||
+		metrics[1].IPv4Address != "192.168.100.72" || metrics[1].BytesRecvSec != nil || metrics[1].BytesSentSec != nil {
+		t.Fatalf("unexpected interfaces without counters: %+v", metrics)
+	}
+
+	collector.listIPv4 = func() ([]network.InterfaceIPv4, error) { return nil, errors.New("ioctl denied") }
+	if _, err := collector.collect(); err == nil || !strings.Contains(err.Error(), "all counter sources denied") {
+		t.Fatalf("expected joined error without any source, got %v", err)
+	}
+}
+
+func TestCountersFromHelperPrefersPerInterfaceThenSingleInterfaceTotal(t *testing.T) {
+	total := &androidhelper.Counters{RecvBytes: 900, SentBytes: 100}
+	perIface := &androidhelper.Result{
+		Ifaces:      map[string]androidhelper.Counters{"wlan0": {RecvBytes: 5, SentBytes: 6}},
+		IfaceSource: "netstats_iface",
+		Total:       total,
+		TotalSource: "netstats_total",
+	}
+	counters, source, err := countersFromHelper([]string{"wlan0", "rmnet0"}, perIface)
+	if err != nil || source != "netstats_iface" || counters["wlan0"].recvBytes != 5 || len(counters) != 1 {
+		t.Fatalf("per-interface: %+v %q %v", counters, source, err)
+	}
+
+	onlyTotal := &androidhelper.Result{Ifaces: map[string]androidhelper.Counters{}, Total: total, TotalSource: "trafficstats_total"}
+	counters, source, err = countersFromHelper([]string{"wlan0"}, onlyTotal)
+	if err != nil || source != "trafficstats_total_single_interface" || counters["wlan0"].recvBytes != 900 {
+		t.Fatalf("single-interface total: %+v %q %v", counters, source, err)
+	}
+	if _, _, err := countersFromHelper([]string{"wlan0", "rmnet0"}, onlyTotal); err == nil {
+		t.Fatal("device total must not be attributed when more than one interface is active")
+	}
+	if _, _, err := countersFromHelper([]string{"wlan0"}, &androidhelper.Result{}); err == nil {
+		t.Fatal("expected error without any counter")
 	}
 }

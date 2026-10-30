@@ -134,8 +134,8 @@ func TestNetworkCollectorRates(t *testing.T) {
 	if first[0].InterfaceName != "eth0" || first[0].IPv4Address != "192.168.1.42" {
 		t.Fatalf("unexpected interface resolution: %+v", first[0])
 	}
-	if first[0].BytesRecvSec != 0 || first[0].BytesSentSec != 0 {
-		t.Fatalf("first sample must have zero rates, got %+v", first[0])
+	if first[0].BytesRecvSec != nil || first[0].BytesSentSec != nil {
+		t.Fatalf("first sample must have null rates, got %+v", first[0])
 	}
 
 	updated := `Inter-|   Receive                                                |  Transmit
@@ -156,7 +156,7 @@ func TestNetworkCollectorRates(t *testing.T) {
 	if len(second) != 1 {
 		t.Fatalf("expected 1 active interface, got %d", len(second))
 	}
-	if second[0].BytesRecvSec != 2000 || second[0].BytesSentSec != 500 {
+	if second[0].BytesRecvSec == nil || *second[0].BytesRecvSec != 2000 || second[0].BytesSentSec == nil || *second[0].BytesSentSec != 500 {
 		t.Fatalf("unexpected rates: %+v", second[0])
 	}
 }
