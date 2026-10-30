@@ -323,6 +323,26 @@
 			color 180ms var(--ease-out);
 	}
 
+	/* O preflight do Tailwind v4 deixa <button> com o cursor padrão: todo elemento acionável
+	   mostra a mão; desabilitado mostra "não permitido". Utilitários de cursor (ex.: `cursor-grab`
+	   da alça de arrastar) continuam prevalecendo por estarem na camada de utilities. */
+	button:not(:disabled),
+	[role='button']:not([aria-disabled='true']),
+	[role='option']:not([aria-disabled='true']),
+	[role='tab']:not([aria-disabled='true']),
+	[role='switch']:not([aria-disabled='true']),
+	summary,
+	select:not(:disabled),
+	label:has(> input:not(:disabled)),
+	input:is([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']):not(:disabled) {
+		cursor: pointer;
+	}
+
+	:disabled,
+	[aria-disabled='true'] {
+		cursor: not-allowed;
+	}
+
 	a,
 	button,
 	input,

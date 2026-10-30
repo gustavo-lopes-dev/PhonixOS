@@ -4,6 +4,7 @@
 	"batteryTitle": "Bateria e temperatura",
 	"cores_one": "{count} núcleo",
 	"cores_other": "{count} núcleos",
+	"cpuSubtitle": "{model} · {cores}",
 	"inUse": "em uso",
 	"loadAverage": "Carga média (1 min)",
 	"temperature": "Temperatura",

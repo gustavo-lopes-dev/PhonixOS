@@ -22,6 +22,7 @@
 	"iconUrlHint": "Empty uses the title's initial",
 	"fieldCategory": "Category",
 	"defaultCategory": "General",
+	"existingCategories": "Existing categories",
 	"pinLabel": "Pin to quick access",
 	"pinHint": "Shows the shortcut in the sidebar.",
 	"errorTitleRequired": "Enter a title.",

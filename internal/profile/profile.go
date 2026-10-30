@@ -13,4 +13,5 @@ type SystemProfile struct {
 	TotalMemoryBytes         uint64      `json:"total_memory_bytes"`
 	RecommendedPollIntervalS int         `json:"recommended_poll_interval_s"`
 	StorageLockMode          string      `json:"storage_lock_mode"` // "wal" ou "truncate"
+	CPUModel                 *string     `json:"cpu_model"`         // nome do processador; nil se não identificado
 }

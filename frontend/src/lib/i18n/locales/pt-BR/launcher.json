@@ -22,6 +22,7 @@
 	"iconUrlHint": "Vazio usa a inicial do título",
 	"fieldCategory": "Categoria",
 	"defaultCategory": "Geral",
+	"existingCategories": "Categorias existentes",
 	"pinLabel": "Fixar no acesso rápido",
 	"pinHint": "Mostra o atalho na barra lateral.",
 	"errorTitleRequired": "Informe um título.",

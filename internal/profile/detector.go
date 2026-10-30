@@ -22,13 +22,15 @@ const (
 
 // DetectProfile inspeciona a RAM total do host via /proc/meminfo e devolve o
 // perfil adaptativo correspondente, propagando o modo de trava de armazenamento
-// retornado por database.InitDB.
+// retornado por database.InitDB e o nome do processador (DetectCPUModel).
 func DetectProfile(storageLockMode string) (*SystemProfile, error) {
 	total, err := totalMemoryBytes(memInfoPath)
 	if err != nil {
 		return nil, err
 	}
-	return classifyProfile(total, storageLockMode), nil
+	profile := classifyProfile(total, storageLockMode)
+	profile.CPUModel = DetectCPUModel()
+	return profile, nil
 }
 
 // classifyProfile aplica a regra de negócio de chaveamento entre lite e

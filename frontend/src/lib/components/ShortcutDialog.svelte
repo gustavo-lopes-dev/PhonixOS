@@ -12,7 +12,7 @@
 	interface Props {
 		/** Atalho em edição; `null` = novo atalho. */
 		shortcut: Shortcut | null;
-		/** Categorias existentes, sugeridas no `<datalist>`. */
+		/** Categorias existentes: botões de seleção rápida abaixo do campo e sugestões do `<datalist>`. */
 		categories: readonly string[];
 		/** Valor inicial de "Fixar no acesso rápido" na criação ("+ Fixar serviço" da sidebar). */
 		initialPinned?: boolean;
@@ -204,6 +204,30 @@
 						<option value={option}></option>
 					{/each}
 				</datalist>
+				{#if categories.length > 0}
+					<!-- O datalist só sugere opções que casam com o texto já digitado (o campo nasce
+					     preenchido) e não é descobrível no toque: as categorias existentes ficam visíveis
+					     como botões que preenchem o campo. -->
+					<div class="flex flex-col gap-1.5" role="group" aria-labelledby="{ids}-categories-label">
+						<span id="{ids}-categories-label" class="text-meta text-muted">{$t('launcher.existingCategories')}</span>
+						<div class="flex flex-wrap gap-1.5">
+							{#each categories as option (option)}
+								{@const selected = category.trim() === option}
+								<button
+									type="button"
+									aria-pressed={selected}
+									class={[
+										'flex h-11 max-w-full items-center truncate rounded-small border px-3 text-label font-medium lg:h-8',
+										selected ? 'border-accent-border bg-accent-soft text-accent' : 'border-inner-border text-muted'
+									]}
+									onclick={() => (category = option)}
+								>
+									{option}
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
 			</div>
 		</div>
 

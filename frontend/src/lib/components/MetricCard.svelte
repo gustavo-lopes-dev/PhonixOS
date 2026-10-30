@@ -10,6 +10,7 @@
 	import { t, type MessageKey } from '#lib/i18n/index.ts';
 	import { connectionStore } from '#lib/stores/connection.ts';
 	import { isBatteryAvailable, metricsStore } from '#lib/stores/metrics.ts';
+	import { serverProfileStore } from '#lib/stores/profile.ts';
 	import type { BatteryMetrics } from '../../types/telemetry.ts';
 
 	type MetricKind = 'cpu' | 'memory' | 'battery';
@@ -72,11 +73,13 @@
 		return $t('connection.stale', { time: $formatters.time(connection.lastUpdateAt ?? metrics.timestamp) });
 	});
 
-	const subtitle = $derived(
-		kind === 'cpu' && !waiting && metrics !== null
-			? $t('metrics.cores', { count: metrics.cpu.core_count })
-			: undefined
-	);
+	// CPU: "{modelo} · {n} núcleos" (handoff §A item 3); sem modelo identificado, só os núcleos.
+	const subtitle = $derived.by(() => {
+		if (kind !== 'cpu' || waiting || metrics === null) return undefined;
+		const cores = $t('metrics.cores', { count: metrics.cpu.core_count });
+		const model = $serverProfileStore?.cpu_model;
+		return model ? $t('metrics.cpuSubtitle', { model, cores }) : cores;
+	});
 
 	const cpuPercent = $derived(clampPercent(metrics?.cpu.usage_percent ?? 0));
 	const memoryPercent = $derived(clampPercent(metrics?.memory.usage_percent ?? 0));

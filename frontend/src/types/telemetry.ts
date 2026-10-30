@@ -59,4 +59,6 @@ export interface SystemProfile {
 	total_memory_bytes: number;
 	recommended_poll_interval_s: number;
 	storage_lock_mode: 'wal' | 'truncate';
+	/** Nome do processador (ex.: "Exynos 2100"); `null` quando o servidor não o identifica. */
+	cpu_model: string | null;
 }
