@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/gustavo-lopes-dev/PhonixOS/internal/api"
 	"github.com/gustavo-lopes-dev/PhonixOS/internal/api/handlers"
 	"github.com/gustavo-lopes-dev/PhonixOS/internal/api/ws"
@@ -77,21 +79,37 @@ func run() error {
 		GetLayout: layout.Get, PutLayout: layout.Put,
 	}, hub)
 
-	listenErr := make(chan error, 1)
-	go func() { listenErr <- app.Listen(":8080") }()
+	listening := make(chan struct{})
+	app.Hooks().OnListen(func(fiber.ListenData) error {
+		close(listening)
+		return nil
+	})
 
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(shutdown)
 
+	listenErr := make(chan error, 1)
+	go func() { listenErr <- app.Listen(":8080") }()
+
+	stopMDNS := func() {}
+	select {
+	case <-listening:
+		stopMDNS = registerMDNS(len(addresses) > 0)
+	case err := <-listenErr:
+		listenErr <- err
+	}
+
 	select {
 	case err := <-listenErr:
+		stopMDNS()
 		cancel()
 		<-broadcastDone
 		hub.CloseAll()
 		return err
 	case <-shutdown:
 		slog.Info("shutting down server")
+		stopMDNS()
 		cancel()
 		<-broadcastDone
 		hub.CloseAll()
@@ -100,4 +118,26 @@ func run() error {
 		}
 		return <-listenErr
 	}
+}
+
+// registerMDNS announces phonix.local on port 8080. Multicast is never a single
+// point of failure: on error the server keeps serving through the literal IPv4
+// URLs logged at boot, and a no-op stop function is returned.
+func registerMDNS(hasIPv4 bool) (stop func()) {
+	fallback := "use the IPv4 URLs listed above"
+	if !hasIPv4 {
+		fallback = "use the device's local IPv4 address on port 8080"
+	}
+	shutdown, err := network.RegisterMDNS(8080)
+	if err != nil {
+		if errors.Is(err, network.ErrMDNSNameConflict) {
+			slog.Warn("mDNS unavailable: phonix.local is claimed by another host; "+fallback, "error", err)
+		} else {
+			slog.Warn("mDNS unavailable (multicast blocked or no LAN interface); "+fallback, "error", err)
+		}
+		return func() {}
+	}
+	slog.Info("server available via mDNS", "url", "http://phonix.local:8080",
+		"note", "resolution depends on the client's multicast/.local support; if it fails, "+fallback)
+	return shutdown
 }
