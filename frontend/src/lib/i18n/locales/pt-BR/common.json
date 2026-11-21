@@ -16,5 +16,15 @@
 	"errorInvalidResponse": "Resposta inválida do servidor",
 	"on": "Ligado",
 	"off": "Desligado",
-	"optional": "opcional"
+	"optional": "opcional",
+	"errorValidationFailed": "O servidor recusou os dados enviados",
+	"errorInvalidJsonBody": "O servidor recebeu dados corrompidos",
+	"errorPayloadTooLarge": "Os dados enviados excedem o limite do servidor",
+	"errorShortcutNotFound": "Este atalho não existe mais; ele pode ter sido excluído em outro dispositivo",
+	"errorCardNotFound": "Um dos cards não existe no servidor",
+	"errorDatabaseLocked": "O banco de dados está ocupado; tente novamente em instantes",
+	"errorDatabase": "Falha ao acessar o banco de dados do servidor",
+	"errorHardwareCollector": "Falha ao ler o hardware do aparelho",
+	"errorInternal": "Erro interno do servidor",
+	"errorServer": "O servidor recusou a operação (código {code})"
 }

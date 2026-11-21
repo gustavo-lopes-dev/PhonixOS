@@ -16,5 +16,15 @@
 	"errorInvalidResponse": "Invalid server response",
 	"on": "On",
 	"off": "Off",
-	"optional": "optional"
+	"optional": "optional",
+	"errorValidationFailed": "The server rejected the submitted data",
+	"errorInvalidJsonBody": "The server received corrupted data",
+	"errorPayloadTooLarge": "The submitted data exceeds the server limit",
+	"errorShortcutNotFound": "This shortcut no longer exists; it may have been deleted on another device",
+	"errorCardNotFound": "One of the cards does not exist on the server",
+	"errorDatabaseLocked": "The database is busy; try again in a moment",
+	"errorDatabase": "Could not access the server database",
+	"errorHardwareCollector": "Could not read the device hardware",
+	"errorInternal": "Internal server error",
+	"errorServer": "The server rejected the operation (code {code})"
 }

@@ -1,8 +1,10 @@
 package api_test
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -163,5 +165,43 @@ func TestWebSocketRequiresUpgrade(t *testing.T) {
 	}
 	if resp.StatusCode != http.StatusUpgradeRequired || body.Error.Code != api.CodeUpgradeRequired {
 		t.Fatalf("upgrade response: %d %+v", resp.StatusCode, body)
+	}
+}
+
+// Regressão (QA 2026-11, BUG-2): corpo acima do limite é 413 PAYLOAD_TOO_LARGE, nunca 500.
+func TestPayloadTooLarge(t *testing.T) {
+	called := false
+	app := api.NewServer(api.Routes{CreateShortcut: func(c *fiber.Ctx) error {
+		called = true
+		return c.SendStatus(http.StatusCreated)
+	}}, nil)
+	// O limite é aplicado na leitura da conexão: app.Test não exercita esse caminho.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = app.Listener(listener) }()
+	t.Cleanup(func() { _ = app.Shutdown() })
+	// Só o cabeçalho anuncia o tamanho: o servidor responde e fecha antes de ler o corpo,
+	// como faz com clientes reais (curl recebeu este 413 no aparelho).
+	conn, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	fmt.Fprintf(conn, "POST /api/v1/shortcuts HTTP/1.1\r\nHost: test\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n{", api.MaxBodyBytes+1)
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var envelope api.APIErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		t.Fatal(err)
+	}
+	if called || resp.StatusCode != http.StatusRequestEntityTooLarge || envelope.Success ||
+		envelope.Error.Code != api.CodePayloadTooLarge {
+		t.Fatalf("oversized body: called=%v %d %+v", called, resp.StatusCode, envelope)
 	}
 }

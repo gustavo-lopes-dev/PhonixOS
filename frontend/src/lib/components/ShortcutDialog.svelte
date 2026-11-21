@@ -5,9 +5,10 @@
 	import { tick, untrack } from 'svelte';
 	import Dialog from '#lib/components/Dialog.svelte';
 	import { t, type MessageKey } from '#lib/i18n/index.ts';
+	import { charCount } from '#lib/text.ts';
 	import type { CreateShortcutDTO, Shortcut, UpdateShortcutDTO } from '../../types/dashboard.ts';
 
-	type FieldError = 'titleRequired' | 'urlRequired' | 'urlInvalid' | 'iconUrlInvalid';
+	type FieldError = 'titleRequired' | 'titleTooLong' | 'urlRequired' | 'urlInvalid' | 'iconUrlInvalid' | 'categoryTooLong';
 
 	interface Props {
 		/** Atalho em edição; `null` = novo atalho. */
@@ -24,12 +25,15 @@
 
 	let { shortcut, categories, initialPinned = false, oncreate, onupdate, ondelete, onclose }: Props = $props();
 
-	// Limites do contrato (contracts.md §3.4: title max 64, category max 32).
+	// Limites do contrato (contracts.md §3.4: title max 64, category max 32), em caracteres
+	// como o servidor conta (`charCount`); o `maxlength` nativo contaria UTF-16.
 	const TITLE_MAX = 64;
 	const CATEGORY_MAX = 32;
 
 	const errorKey: Record<FieldError, MessageKey> = {
 		titleRequired: 'launcher.errorTitleRequired',
+		titleTooLong: 'launcher.errorTitleTooLong',
+		categoryTooLong: 'launcher.errorCategoryTooLong',
 		urlRequired: 'launcher.errorUrlRequired',
 		urlInvalid: 'launcher.errorUrlInvalid',
 		iconUrlInvalid: 'launcher.errorUrlInvalid'
@@ -75,8 +79,10 @@
 	};
 
 	const errors = $derived.by(() => {
-		const found: Partial<Record<'title' | 'url' | 'iconUrl', FieldError>> = {};
+		const found: Partial<Record<'title' | 'url' | 'iconUrl' | 'category', FieldError>> = {};
 		if (title.trim() === '') found.title = 'titleRequired';
+		else if (charCount(title.trim()) > TITLE_MAX) found.title = 'titleTooLong';
+		if (charCount(category.trim()) > CATEGORY_MAX) found.category = 'categoryTooLong';
 		const trimmedUrl = url.trim();
 		if (trimmedUrl === '') found.url = 'urlRequired';
 		else if (!isHttpUrl(trimmedUrl)) found.url = 'urlInvalid';
@@ -85,12 +91,14 @@
 		return found;
 	});
 	const visibleErrors = $derived(submitted ? errors : {});
+	const titleChars = $derived(charCount(title));
+	const categoryChars = $derived(charCount(category));
 
 	function onsubmit(event: SubmitEvent) {
 		event.preventDefault();
 		submitted = true;
 		if (Object.keys(errors).length > 0) {
-			const firstInvalid = (['title', 'url', 'iconUrl'] as const).find((field) => errors[field]);
+			const firstInvalid = (['title', 'url', 'iconUrl', 'category'] as const).find((field) => errors[field]);
 			if (firstInvalid) document.getElementById(`${ids}-${firstInvalid}`)?.focus();
 			return;
 		}
@@ -135,7 +143,6 @@
 				id="{ids}-title"
 				class={[inputClass, visibleErrors.title && invalidInputClass]}
 				bind:value={title}
-				maxlength={TITLE_MAX}
 				required
 				autocomplete="off"
 				aria-invalid={visibleErrors.title ? 'true' : undefined}
@@ -146,7 +153,9 @@
 				<span class="text-meta text-warn">
 					{#if visibleErrors.title}{$t(errorKey[visibleErrors.title])}{/if}
 				</span>
-				<span class="num text-meta leading-none text-muted">{title.length} / {TITLE_MAX}</span>
+				<span class={['num text-meta leading-none', titleChars > TITLE_MAX ? 'text-warn' : 'text-muted']}>
+					{titleChars} / {TITLE_MAX}
+				</span>
 			</div>
 		</div>
 
@@ -193,12 +202,21 @@
 				<label for="{ids}-category" class="text-[13.5px] leading-none font-semibold">{$t('launcher.fieldCategory')}</label>
 				<input
 					id="{ids}-category"
-					class={inputClass}
+					class={[inputClass, visibleErrors.category && invalidInputClass]}
 					bind:value={category}
-					maxlength={CATEGORY_MAX}
 					list="{ids}-categories"
 					autocomplete="off"
+					aria-invalid={visibleErrors.category ? 'true' : undefined}
+					aria-describedby="{ids}-category-meta"
 				/>
+				<div id="{ids}-category-meta" class="flex justify-between gap-3">
+					<span class="text-meta text-warn">
+						{#if visibleErrors.category}{$t(errorKey[visibleErrors.category])}{/if}
+					</span>
+					<span class={['num text-meta leading-none', categoryChars > CATEGORY_MAX ? 'text-warn' : 'text-muted']}>
+						{categoryChars} / {CATEGORY_MAX}
+					</span>
+				</div>
 				<datalist id="{ids}-categories">
 					{#each categories as option (option)}
 						<option value={option}></option>

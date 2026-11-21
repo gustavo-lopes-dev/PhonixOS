@@ -30,5 +30,8 @@
 	"errorUrlInvalid": "Use a full URL starting with http:// or https://.",
 	"delete": "Delete",
 	"deleteConfirm": "Delete “{title}”? This can't be undone.",
-	"deleteConfirmAction": "Delete shortcut"
+	"deleteConfirmAction": "Delete shortcut",
+	"loadError": "Couldn't load the shortcuts",
+	"errorTitleTooLong": "Use at most 64 characters.",
+	"errorCategoryTooLong": "Use at most 32 characters."
 }

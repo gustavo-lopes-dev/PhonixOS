@@ -15,7 +15,8 @@
 	import ShortcutDialog from '#lib/components/ShortcutDialog.svelte';
 	import { t, type MessageKey } from '#lib/i18n/index.ts';
 	import { CARD_KEYS, type CardKey } from '#lib/layout.ts';
-	import { api, ApiError, type LocalErrorCode } from '#lib/services/api.ts';
+	import { errorMessage } from '#lib/errors.ts';
+	import { api, ApiError } from '#lib/services/api.ts';
 	import { telemetrySocket } from '#lib/services/websocket.ts';
 	import { updateIntervalSeconds } from '#lib/stores/connection.ts';
 	import { dismissInstall, installAvailable, promptInstall } from '#lib/stores/install.ts';
@@ -41,11 +42,6 @@
 		layoutSave: 'dashboard.layoutSaveError',
 		shortcutSave: 'dashboard.shortcutSaveError',
 		shortcutDelete: 'dashboard.shortcutDeleteError'
-	};
-	const localErrorKey: Record<LocalErrorCode, MessageKey> = {
-		network_error: 'common.errorNetwork',
-		timeout: 'common.errorTimeout',
-		invalid_response: 'common.errorInvalidResponse'
 	};
 	const metricKind: Record<Exclude<CardKey, 'app_launcher'>, 'cpu' | 'memory' | 'battery'> = {
 		metrics_cpu: 'cpu',
@@ -99,9 +95,8 @@
 	);
 
 	function errorText(error: unknown): string {
-		if (error instanceof ApiError && !error.isLocal) return error.message;
-		const code = error instanceof ApiError && error.isLocal ? (error.code as LocalErrorCode) : 'invalid_response';
-		return $t(localErrorKey[code]);
+		const { key, params } = errorMessage(error);
+		return $t(key, params);
 	}
 
 	async function load<T>(resource: Resource, request: () => Promise<T>, apply: (value: T) => void) {
@@ -180,6 +175,9 @@
 			await action();
 		} catch (error) {
 			actionError = { kind, error };
+			// O servidor respondeu (ex.: SHORTCUT_NOT_FOUND após exclusão em outra aba): a lista
+			// local pode estar desatualizada, então ressincroniza. Sem resposta, mantém a lista.
+			if (error instanceof ApiError && !error.isLocal) await reloadShortcuts();
 			return;
 		}
 		await reloadShortcuts();
@@ -222,7 +220,8 @@
 	{#if key === 'app_launcher'}
 		<AppLauncher
 			{shortcuts}
-			loading={status.shortcuts !== 'ready'}
+			loading={status.shortcuts === 'loading'}
+			failed={status.shortcuts === 'error'}
 			bind:editing={editingShortcuts}
 			summary={mode === 'summary'}
 			oncreate={createShortcut}

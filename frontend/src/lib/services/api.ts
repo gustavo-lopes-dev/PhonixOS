@@ -1,7 +1,7 @@
 // Cliente HTTP tipado da API REST (contracts.md §1 e §5), na mesma origem do dashboard.
 // Desembrulha o envelope de sucesso (`data`) e converte o envelope de erro — ou falhas locais
 // de rede, timeout e parsing — em `ApiError`. Expõe apenas códigos e dados; nenhum texto
-// visível nasce aqui (a UI traduz os códigos locais e exibe o `message` do servidor).
+// visível nasce aqui (a UI traduz pelo código, locais e canônicos; ver `#lib/errors.ts`).
 
 import type { ApiErrorResponse, ApiResponse, NetworkResponse } from '../../types/api.ts';
 import type {

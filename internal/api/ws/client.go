@@ -57,6 +57,8 @@ type client struct {
 	closed    bool
 	override  time.Duration
 	nextSend  time.Time
+	// lastSent é o horário do último telemetry_tick enfileirado; zero antes do primeiro.
+	lastSent time.Time
 }
 
 func newClient(h *Hub, conn messageConn) *client {
@@ -82,6 +84,9 @@ func (h *Hub) handleConn(conn messageConn) {
 	if !h.add(c) {
 		return
 	}
+	// Primeira leitura logo após o perfil, sem esperar a cadência: o painel sai de
+	// "conectando"/"sem conexão" assim que o socket abre, inclusive nas reconexões.
+	c.deliverNow()
 	c.readPump()
 	h.remove(c)
 	c.close()
@@ -130,17 +135,30 @@ func (c *client) handleAction(data []byte) {
 	}
 }
 
-// resume restaura a emissão: envia um snapshot imediato do último estado
-// conhecido e recalcula a próxima janela de envio pela cadência corrente.
+// resume restaura a emissão com uma leitura imediata (deliverNow).
 func (c *client) resume() {
-	now := time.Now()
 	c.mu.Lock()
 	c.paused = false
+	c.mu.Unlock()
+	c.deliverNow()
+}
+
+// deliverNow entrega uma leitura sem esperar a cadência: o snapshot compartilhado
+// quando ainda está dentro da cadência corrente; caso contrário, pede uma coleta
+// compartilhada imediata e deixa a conexão vencida para recebê-la.
+func (c *client) deliverNow() {
+	now := time.Now()
+	c.mu.Lock()
+	if c.paused || c.closed {
+		c.mu.Unlock()
+		return
+	}
 	cadence := c.cadenceLocked()
 	snapshot := c.hub.Snapshot()
 	fresh := snapshot != nil && !snapshot.Timestamp.IsZero() && now.Sub(snapshot.Timestamp) < cadence
 	if fresh {
 		c.nextSend = now.Add(cadence)
+		c.lastSent = now
 	} else {
 		c.nextSend = now
 	}
@@ -154,7 +172,9 @@ func (c *client) resume() {
 }
 
 // setRate substitui a cadência apenas desta conexão; rate_ms igual a zero
-// remove a substituição e restaura a cadência recomendada do perfil.
+// remove a substituição e restaura a cadência recomendada do perfil. A próxima
+// entrega conta a partir da última leitura enviada; antes da primeira, a entrega
+// pendente não é adiada (o cliente reenvia set_rate a cada conexão).
 func (c *client) setRate(rate time.Duration) {
 	c.mu.Lock()
 	if rate <= 0 {
@@ -162,7 +182,9 @@ func (c *client) setRate(rate time.Duration) {
 	} else {
 		c.override = rate
 	}
-	c.nextSend = time.Now().Add(c.cadenceLocked())
+	if !c.lastSent.IsZero() {
+		c.nextSend = c.lastSent.Add(c.cadenceLocked())
+	}
 	c.mu.Unlock()
 	c.hub.Notify()
 }
@@ -208,6 +230,7 @@ func (c *client) sendTelemetry(snapshot *collector.HardwareMetrics, now time.Tim
 		return
 	}
 	c.nextSend = now.Add(c.cadenceLocked())
+	c.lastSent = now
 	c.mu.Unlock()
 	c.enqueue(eventTelemetryTick, snapshot)
 }

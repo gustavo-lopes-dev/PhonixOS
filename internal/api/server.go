@@ -14,6 +14,10 @@ import (
 	"github.com/gustavo-lopes-dev/PhonixOS/internal/api/ws"
 )
 
+// MaxBodyBytes é o limite do corpo das requisições REST (padrão do Fiber, explícito para
+// que a mensagem de PAYLOAD_TOO_LARGE e os testes não dependam do valor implícito).
+const MaxBodyBytes = 4 * 1024 * 1024
+
 // Routes define os handlers REST injetados pelo ponto de entrada.
 type Routes struct {
 	Health, Profile, Metrics       fiber.Handler
@@ -30,7 +34,7 @@ func NewServer(routes Routes, hub *ws.Hub) *fiber.App {
 }
 
 func newServer(routes Routes, hub *ws.Hub, assets fs.FS) *fiber.App {
-	app := fiber.New(fiber.Config{ErrorHandler: serverError})
+	app := fiber.New(fiber.Config{ErrorHandler: serverError, BodyLimit: MaxBodyBytes})
 	app.Use(recover.New())
 	app.Use(logger.New(logger.Config{Format: "${time} ${status} ${method} ${path}\n"}))
 	app.Use(cors.New(cors.Config{AllowOrigins: "*", AllowMethods: "GET,POST,PUT,PATCH,DELETE,OPTIONS", AllowHeaders: "Origin,Content-Type,Accept"}))
@@ -75,6 +79,8 @@ func serverError(c *fiber.Ctx, err error) error {
 		status, code, message = http.StatusNotFound, "RESOURCE_NOT_FOUND", "Rota não encontrada."
 	case errors.As(err, &fiberErr) && fiberErr.Code == http.StatusMethodNotAllowed:
 		status, code, message = http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Método não permitido para esta rota."
+	case errors.As(err, &fiberErr) && fiberErr.Code == http.StatusRequestEntityTooLarge:
+		status, code, message = http.StatusRequestEntityTooLarge, CodePayloadTooLarge, "Corpo da requisição excede o limite de 4 MB."
 	case errors.As(err, &fiberErr) && fiberErr.Code == http.StatusUpgradeRequired:
 		status, code, message = http.StatusUpgradeRequired, CodeUpgradeRequired, "Esta rota exige upgrade WebSocket."
 	default:

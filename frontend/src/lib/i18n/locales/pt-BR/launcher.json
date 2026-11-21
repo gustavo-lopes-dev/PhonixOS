@@ -30,5 +30,8 @@
 	"errorUrlInvalid": "Use uma URL completa começando com http:// ou https://.",
 	"delete": "Excluir",
 	"deleteConfirm": "Excluir “{title}”? Esta ação não pode ser desfeita.",
-	"deleteConfirmAction": "Excluir atalho"
+	"deleteConfirmAction": "Excluir atalho",
+	"loadError": "Não foi possível carregar os atalhos",
+	"errorTitleTooLong": "Use no máximo 64 caracteres.",
+	"errorCategoryTooLong": "Use no máximo 32 caracteres."
 }

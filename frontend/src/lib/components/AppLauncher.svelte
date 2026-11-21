@@ -3,6 +3,7 @@
 	// primeira aparição após `display_order`. Tiles abrem o serviço em nova aba; no modo "Editar
 	// atalhos" abrem o `ShortcutDialog`. Não chama a API: emite os DTOs do contrato.
 	// `summary` = linha compacta de tiles usada no modo de edição do layout.
+	import { tick } from 'svelte';
 	import Card from '#lib/components/Card.svelte';
 	import Favicon from '#lib/components/Favicon.svelte';
 	import ShortcutDialog from '#lib/components/ShortcutDialog.svelte';
@@ -12,17 +13,21 @@
 	interface Props {
 		shortcuts: readonly Shortcut[];
 		loading?: boolean;
+		/** A carga da lista falhou (a página mostra a faixa com "Tentar novamente"). */
+		failed?: boolean;
 		/** Modo "Editar atalhos"; também alternável de fora (sidebar, 3.7). */
 		editing?: boolean;
 		summary?: boolean;
 		oncreate: (dto: CreateShortcutDTO) => void;
 		onupdate: (id: number, dto: UpdateShortcutDTO) => void;
-		ondelete: (id: number) => void;
+		/** Pode devolver a Promise da exclusão: o foco só é reposicionado depois dela. */
+		ondelete: (id: number) => void | Promise<unknown>;
 	}
 
 	let {
 		shortcuts,
 		loading = false,
+		failed = false,
 		editing = $bindable(false),
 		summary = false,
 		oncreate,
@@ -37,6 +42,8 @@
 
 	/** `null` = fechado; `{ shortcut: null }` = novo atalho. */
 	let dialog = $state<{ shortcut: Shortcut | null } | null>(null);
+	let tileList = $state<HTMLElement>();
+	let editToggle = $state<HTMLButtonElement>();
 
 	const sorted = $derived([...shortcuts].sort((a, b) => a.display_order - b.display_order || a.id - b.id));
 	const groups = $derived.by(() => {
@@ -76,16 +83,32 @@
 		dialog = null;
 	}
 
-	function remove(id: number) {
-		ondelete(id);
+	/** Tiles na ordem em que aparecem na tela (agrupados por categoria). */
+	function tiles(): HTMLElement[] {
+		return tileList ? Array.from(tileList.querySelectorAll<HTMLElement>('[data-shortcut-tile]')) : [];
+	}
+
+	// O gatilho do diálogo (o tile excluído) sai do DOM: o foco vai para o tile que ocupou a
+	// mesma posição na tela, o anterior se era o último, ou o botão "Concluir edição".
+	async function remove(id: number) {
+		const index = tiles().findIndex((tile) => tile.dataset.shortcutTile === String(id));
 		dialog = null;
+		await ondelete(id);
+		await tick();
+		const remaining = tiles();
+		const target = index < 0 ? undefined : remaining[Math.min(index, remaining.length - 1)];
+		(target ?? editToggle)?.focus();
 	}
 </script>
 
 {#snippet tileContent(shortcut: Shortcut, mark: string)}
 	<Favicon src={shortcut.icon_url} title={shortcut.title} size={34} radius={9} mobileSize={30} mobileRadius={8} />
 	<span class="flex min-w-0 flex-1 flex-col gap-[5px]">
-		<span class="text-body leading-[1.2] font-semibold lg:truncate lg:text-[14px] lg:leading-[1.1]">{shortcut.title}</span>
+		<!-- Celular: no máximo 2 linhas para manter o tile de 56 px (handoff §B); desktop: 1 linha. -->
+		<span
+			class="line-clamp-2 text-body leading-[1.2] font-semibold [overflow-wrap:anywhere] lg:line-clamp-none lg:truncate lg:text-[14px] lg:leading-[1.1]"
+			>{shortcut.title}</span
+		>
 		<span class="num truncate text-[11.5px] leading-none text-muted max-lg:hidden">{hostOf(shortcut.url)}</span>
 	</span>
 	<span class={['text-[14px] leading-none', editing ? 'text-accent' : 'text-muted max-lg:hidden']} aria-hidden="true">
@@ -98,6 +121,8 @@
 		<span class="text-card-title uppercase">{$t('launcher.title')}</span>
 		{#if loading}
 			<span class="text-body text-muted">{$t('launcher.loading')}</span>
+		{:else if failed}
+			<span class="text-body text-muted">{$t('launcher.loadError')}</span>
 		{:else if sorted.length === 0}
 			<span class="text-body text-muted">{$t('launcher.empty')}</span>
 		{:else}
@@ -117,7 +142,7 @@
 			<div class="flex flex-col gap-3.5 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
 				<div class="flex items-baseline justify-between gap-3 lg:justify-start">
 					<h2 id={titleId} class="text-card-title uppercase">{$t('launcher.title')}</h2>
-					{#if !loading && sorted.length > 0}
+					{#if !loading && !failed && sorted.length > 0}
 						<span class="text-meta leading-none text-muted lg:text-label lg:leading-none">
 							{$t('launcher.shortcutCount', { count: sorted.length })}<span class="max-lg:hidden"
 								>{' · '}{$t('launcher.categoryCount', { count: groups.length })}</span
@@ -127,9 +152,10 @@
 				</div>
 				{#if loading}
 					<span class="text-label leading-none text-muted" role="status">{$t('launcher.loading')}</span>
-				{:else}
+				{:else if !failed}
 					<div class="grid grid-cols-[1fr_1.5fr] gap-2 lg:flex lg:gap-2.5">
 						<button
+							bind:this={editToggle}
 							type="button"
 							aria-pressed={editing}
 							class={[
@@ -152,7 +178,7 @@
 			</div>
 		{/snippet}
 
-		{#if editing && !loading && sorted.length > 0}
+		{#if editing && !loading && !failed && sorted.length > 0}
 			<p class="text-label text-muted">{$t('launcher.editingHint')}</p>
 		{/if}
 
@@ -162,6 +188,10 @@
 					<div class="surface-inner h-14 rounded-tile lg:h-[62px]"></div>
 				{/each}
 			</div>
+		{:else if failed}
+			<div class="flex flex-col gap-1.5 rounded-tile border border-dashed border-warn-border px-4 py-5" role="status">
+				<span class="text-body font-semibold">{$t('launcher.loadError')}</span>
+			</div>
 		{:else if sorted.length === 0}
 			<div class="flex flex-col gap-1.5 rounded-tile border border-dashed border-border px-4 py-5">
 				<span class="text-body font-semibold">{$t('launcher.empty')}</span>
@@ -169,6 +199,7 @@
 			</div>
 		{:else}
 			<div
+				bind:this={tileList}
 				class="flex flex-col gap-2 lg:grid lg:gap-5"
 				style:grid-template-columns="repeat({Math.min(groups.length, 4)}, minmax(0, 1fr))"
 			>
@@ -185,6 +216,7 @@
 									{#if editing}
 										<button
 											type="button"
+											data-shortcut-tile={shortcut.id}
 											class="flex min-h-14 w-full items-center gap-2.5 rounded-tile border-[1.5px] border-dashed border-accent bg-inner px-2.5 text-left lg:h-[62px] lg:gap-3 lg:px-3.5"
 											aria-label={$t('launcher.editShortcutLabel', { title: shortcut.title })}
 											onclick={() => (dialog = { shortcut })}
@@ -193,6 +225,7 @@
 										</button>
 									{:else}
 										<a
+											data-shortcut-tile={shortcut.id}
 											href={shortcut.url}
 											target="_blank"
 											rel="noopener noreferrer"

@@ -25,7 +25,16 @@ func failure(c *fiber.Ctx, status int, code, message string) error {
 
 func databaseFailure(c *fiber.Ctx, err error) error {
 	code, status := api.CodeForError(err)
-	slog.Error("rest: database operation failed", "code", code, "error", err)
+	// Recurso inexistente (404) é resposta normal a um pedido do cliente, não falha do
+	// servidor: fica em Debug para não poluir o log do runit. Contenção (503) é transitória.
+	switch {
+	case status < http.StatusInternalServerError:
+		slog.Debug("rest: resource not found", "code", code, "error", err)
+	case status == http.StatusServiceUnavailable:
+		slog.Warn("rest: database busy", "code", code, "error", err)
+	default:
+		slog.Error("rest: database operation failed", "code", code, "error", err)
+	}
 	switch code {
 	case api.CodeShortcutNotFound:
 		return failure(c, status, code, "Atalho com o ID especificado não foi encontrado.")

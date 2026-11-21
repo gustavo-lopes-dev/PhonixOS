@@ -21,5 +21,6 @@
 	"seconds": "{n} s",
 	"saveChanges": "Salvar alterações",
 	"saving": "Salvando…",
-	"savedAt": "Salvo às {time}"
+	"savedAt": "Salvo às {time}",
+	"instanceNameTooLong": "Use no máximo 32 caracteres"
 }

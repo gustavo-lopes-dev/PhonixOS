@@ -8,7 +8,8 @@
 	import Dropdown, { type DropdownOption } from '#lib/components/Dropdown.svelte';
 	import { formatters } from '#lib/i18n/format.ts';
 	import { availableLocales, setLocale, t, type MessageKey } from '#lib/i18n/index.ts';
-	import { ApiError, type LocalErrorCode } from '#lib/services/api.ts';
+	import { errorMessage } from '#lib/errors.ts';
+	import { charCount } from '#lib/text.ts';
 	import { localeStore } from '#lib/stores/locale.ts';
 	import { serverProfileStore } from '#lib/stores/profile.ts';
 	import {
@@ -55,11 +56,6 @@
 		lite: 'settings.profileLite',
 		performance: 'settings.profilePerformance'
 	};
-	const localErrorKey: Record<LocalErrorCode, MessageKey> = {
-		network_error: 'common.errorNetwork',
-		timeout: 'common.errorTimeout',
-		invalid_response: 'common.errorInvalidResponse'
-	};
 
 	const ids = $props.id();
 
@@ -104,7 +100,10 @@
 		});
 	});
 	const dirty = $derived(Object.keys(changes).length > 0);
-	const nameInvalid = $derived(draft !== null && draft.name.trim() === '');
+	const nameChars = $derived(draft === null ? 0 : charCount(draft.name.trim()));
+	const nameEmpty = $derived(draft !== null && draft.name.trim() === '');
+	const nameTooLong = $derived(nameChars > NAME_MAX);
+	const nameInvalid = $derived(nameEmpty || nameTooLong);
 	const canSave = $derived(dirty && !nameInvalid && !saving);
 
 	async function load() {
@@ -156,9 +155,8 @@
 	}
 
 	function errorText(error: unknown): string {
-		if (error instanceof ApiError && !error.isLocal) return error.message;
-		const code = error instanceof ApiError && error.isLocal ? (error.code as LocalErrorCode) : 'invalid_response';
-		return $t(localErrorKey[code]);
+		const { key, params } = errorMessage(error);
+		return $t(key, params);
 	}
 
 	interface LocaleOption extends DropdownOption {
@@ -200,7 +198,6 @@
 						id="{ids}-name"
 						class={[inputClass, nameInvalid && 'border-warn-border']}
 						bind:value={draft.name}
-						maxlength={NAME_MAX}
 						required
 						autocomplete="off"
 						aria-invalid={nameInvalid ? 'true' : undefined}
@@ -209,9 +206,11 @@
 					/>
 					<div id="{ids}-name-meta" class="flex justify-between gap-3">
 						<span class="text-meta text-warn">
-							{#if nameInvalid}{$t('settings.instanceNameRequired')}{/if}
+							{#if nameEmpty}{$t('settings.instanceNameRequired')}{:else if nameTooLong}{$t('settings.instanceNameTooLong')}{/if}
 						</span>
-						<span class="num text-meta leading-none text-muted">{draft.name.length} / {NAME_MAX}</span>
+						<span class={['num text-meta leading-none', nameTooLong ? 'text-warn' : 'text-muted']}>
+							{charCount(draft.name)} / {NAME_MAX}
+						</span>
 					</div>
 				</div>
 

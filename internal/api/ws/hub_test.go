@@ -339,3 +339,61 @@ func TestCloseAllClosesWebSocketSessions(t *testing.T) {
 		t.Fatal("hub did not close a late session")
 	}
 }
+
+// Regressão (QA 2026-11, BUG-1): a primeira leitura não pode esperar uma cadência
+// inteira depois do handshake, nem ser adiada pelo set_rate que o cliente reenvia
+// em toda conexão.
+func TestHandleConnDeliversFreshSnapshotImmediately(t *testing.T) {
+	hub := NewHub(&profile.SystemProfile{Profile: profile.ProfilePerformance, RecommendedPollIntervalS: 2})
+	hub.SetSnapshot(&collector.HardwareMetrics{Timestamp: time.Now().UTC()})
+	conn := newFakeConn()
+	go hub.handleConn(conn)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	waitForEvent(t, conn, eventSystemProfile)
+	waitForEvent(t, conn, eventTelemetryTick)
+}
+
+func TestHandleConnWithoutFreshSnapshotRequestsCollection(t *testing.T) {
+	hub := NewHub(&profile.SystemProfile{Profile: profile.ProfilePerformance, RecommendedPollIntervalS: 2})
+	hub.SetSnapshot(&collector.HardwareMetrics{Timestamp: time.Now().Add(-time.Minute).UTC()})
+	conn := newFakeConn()
+	go hub.handleConn(conn)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	waitForEvent(t, conn, eventSystemProfile)
+	deadline := time.Now().Add(time.Second)
+	for !hub.immediate.Load() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !hub.immediate.Load() {
+		t.Fatal("stale snapshot on connect did not request an immediate shared collection")
+	}
+}
+
+func TestSetRateBeforeFirstDeliveryDoesNotDelayIt(t *testing.T) {
+	hub := NewHub(&profile.SystemProfile{Profile: profile.ProfilePerformance, RecommendedPollIntervalS: 2})
+	c := newClient(hub, newFakeConn())
+	hub.add(c)
+
+	c.handleAction([]byte(`{"action":"set_rate","rate_ms":60000}`))
+	if !c.due(time.Now()) {
+		t.Fatalf("set_rate before the first reading postponed it to %v", time.Until(c.nextSend))
+	}
+
+	b := newBroadcasterWith(hub, func() (*collector.HardwareMetrics, error) {
+		return &collector.HardwareMetrics{Timestamp: time.Now().UTC()}, nil
+	})
+	b.tick()
+	select {
+	case <-c.send:
+	case <-time.After(time.Second):
+		t.Fatal("first reading was not delivered on the next shared tick")
+	}
+
+	// Depois da primeira leitura, a nova cadência conta a partir dela.
+	c.handleAction([]byte(`{"action":"set_rate","rate_ms":60000}`))
+	if remaining := time.Until(c.nextSend); remaining < 59*time.Second || remaining > 60*time.Second {
+		t.Fatalf("cadence after first reading = %v, want ~60s", remaining)
+	}
+}

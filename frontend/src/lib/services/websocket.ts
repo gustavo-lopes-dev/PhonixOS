@@ -1,5 +1,6 @@
 // Cliente singleton do canal `/ws/telemetry` (contracts.md §6).
-// Reconexão com backoff exponencial (1 s, 2 s, 4 s… teto 10 s), pausa/retomada pela
+// Reconexão com backoff exponencial (1 s, 2 s, 4 s… teto 10 s), vigia de leituras (um socket
+// aberto que para de entregar `telemetry_tick` é tratado como queda), pausa/retomada pela
 // Page Visibility API, reaplicação da última `set_rate` a cada conexão e alimentação de
 // `connectionStore`, `metricsStore` e `serverProfileStore`. Expõe apenas estados e
 // números; nenhum texto visível nasce aqui.
@@ -16,6 +17,20 @@ const MAX_RETRY_DELAY_MS = 10_000;
 /** Piso do servidor para `set_rate` positivo (contracts.md §6.3). */
 const MIN_RATE_MS = 1000;
 const NORMAL_CLOSURE = 1000;
+/** Folga do vigia além da cadência: coleta, rede lenta e o passo do ticker compartilhado. */
+const WATCHDOG_GRACE_MS = 5000;
+/** Cadência assumida antes do `system_profile` (a do perfil lite, a mais lenta). */
+const FALLBACK_PROFILE_INTERVAL_MS = 5000;
+
+/**
+ * Tempo máximo sem `telemetry_tick` antes de considerar o socket morto: a cadência efetiva
+ * (`set_rate` positiva ou a do perfil), mais um passo do ticker do servidor (que entrega no
+ * máximo uma cadência do perfil depois do vencimento) e uma folga fixa.
+ */
+export function watchdogTimeoutMs(requestedRateMs: number | null, profileIntervalMs: number): number {
+	const cadence = requestedRateMs !== null && requestedRateMs > 0 ? requestedRateMs : profileIntervalMs;
+	return cadence + profileIntervalMs + WATCHDOG_GRACE_MS;
+}
 
 /** Atraso antes da tentativa `attempt` (1-based): 1 s, 2 s, 4 s, 8 s, 10 s, 10 s… */
 export function retryDelayMs(attempt: number): number {
@@ -47,6 +62,8 @@ class TelemetrySocket {
 
 	#socket: WebSocket | null = null;
 	#retryTimer: ReturnType<typeof setTimeout> | null = null;
+	#watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+	#profileIntervalMs = FALLBACK_PROFILE_INTERVAL_MS;
 	#active = false;
 	#hasSnapshot = false;
 	#lastUpdateAt: number | null = null;
@@ -68,6 +85,7 @@ class TelemetrySocket {
 		this.#active = false;
 		document.removeEventListener('visibilitychange', this.#onVisibilityChange);
 		this.#clearRetryTimer();
+		this.#clearWatchdog();
 		const socket = this.#socket;
 		this.#socket = null;
 		if (socket) {
@@ -101,6 +119,7 @@ class TelemetrySocket {
 		this.#requestedRateMs = rateMs;
 		this.#connection.setRequestedRate(rateMs);
 		this.#send({ action: 'set_rate', rate_ms: rateMs });
+		if (this.#watchdogTimer !== null) this.#armWatchdog();
 	}
 
 	#open(): void {
@@ -121,6 +140,8 @@ class TelemetrySocket {
 			}
 			if (document.visibilityState === 'hidden') {
 				this.#send({ action: 'pause' });
+			} else {
+				this.#armWatchdog();
 			}
 		};
 		socket.onmessage = (event: MessageEvent) => {
@@ -130,10 +151,41 @@ class TelemetrySocket {
 		// `error` sempre precede `close`; a reconexão é tratada só no `close`.
 		socket.onclose = () => {
 			if (this.#socket !== socket) return;
-			this.#socket = null;
-			this.#detach(socket);
-			this.#scheduleRetry();
+			this.#dropSocket();
 		};
+	}
+
+	/** Esquece o socket atual (sem esperar o `close`, que num TCP morto demora) e agenda a reconexão. */
+	#dropSocket(): void {
+		const socket = this.#socket;
+		if (!socket) return;
+		this.#socket = null;
+		this.#clearWatchdog();
+		this.#detach(socket);
+		socket.close();
+		this.#scheduleRetry();
+	}
+
+	/**
+	 * (Re)arma o vigia: sem `telemetry_tick` dentro do prazo, um socket aparentemente aberto
+	 * (queda de Wi-Fi sem FIN/RST) vira queda — o painel passa a "Sem conexão" e reconecta.
+	 */
+	#armWatchdog(): void {
+		this.#clearWatchdog();
+		if (!this.#socket || document.visibilityState === 'hidden') return;
+		const timeout = watchdogTimeoutMs(this.#requestedRateMs, this.#profileIntervalMs);
+		this.#watchdogTimer = setTimeout(() => {
+			this.#watchdogTimer = null;
+			console.warn('[ws] nenhuma leitura em', timeout, 'ms; reconectando');
+			this.#dropSocket();
+		}, timeout);
+	}
+
+	#clearWatchdog(): void {
+		if (this.#watchdogTimer !== null) {
+			clearTimeout(this.#watchdogTimer);
+			this.#watchdogTimer = null;
+		}
 	}
 
 	#handleMessage(data: unknown): void {
@@ -143,8 +195,14 @@ class TelemetrySocket {
 			return;
 		}
 		if (message.event === 'system_profile') {
-			serverProfileStore.set(message.payload as SystemProfile);
+			const profile = message.payload as SystemProfile;
+			serverProfileStore.set(profile);
+			if (Number.isFinite(profile.recommended_poll_interval_s) && profile.recommended_poll_interval_s > 0) {
+				this.#profileIntervalMs = profile.recommended_poll_interval_s * 1000;
+			}
+			if (this.#watchdogTimer !== null) this.#armWatchdog();
 		} else if (message.event === 'telemetry_tick') {
+			this.#armWatchdog();
 			this.#metrics.push(message.payload as HardwareMetrics);
 			this.#hasSnapshot = true;
 			this.#lastUpdateAt = Date.now();
@@ -168,10 +226,12 @@ class TelemetrySocket {
 	readonly #onVisibilityChange = (): void => {
 		if (document.visibilityState === 'hidden') {
 			this.#send({ action: 'pause' });
+			this.#clearWatchdog();
 			return;
 		}
 		if (this.#socket) {
 			this.#send({ action: 'resume' });
+			this.#armWatchdog();
 		} else if (this.#retryTimer !== null) {
 			// De volta à aba com o servidor fora: tenta já, sem esperar o backoff.
 			this.reconnectNow();

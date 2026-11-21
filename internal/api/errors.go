@@ -11,6 +11,7 @@ import (
 const (
 	CodeValidationFailed       = "VALIDATION_FAILED"
 	CodeInvalidJSONBody        = "INVALID_JSON_BODY"
+	CodePayloadTooLarge        = "PAYLOAD_TOO_LARGE"
 	CodeShortcutNotFound       = "SHORTCUT_NOT_FOUND"
 	CodeCardNotFound           = "CARD_NOT_FOUND"
 	CodeDatabaseLocked         = "DATABASE_LOCKED"
